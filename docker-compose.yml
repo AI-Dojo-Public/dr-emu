@@ -1,0 +1,60 @@
+version: '3.9'
+services:
+  thor:
+    image: nicolaka/netshoot
+    restart: always
+    container_name: thor
+    networks:
+      asgard:
+        ipv4_address: 192.168.90.3
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+    command: ip route del default && ip route add default 192.168.90.2
+
+  router:
+    image: vyos/vyos-build:current
+    restart: always
+    container_name: router
+    networks:
+      earth:
+        ipv4_address: 192.168.91.2
+      asgard:
+        ipv4_address: 192.168.90.2
+      nilfheim:
+        ipv4_address: 192.168.92.2
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+  loki:
+    image: nicolaka/netshoot
+    restart: always
+    container_name: loki
+    networks:
+      nilfheim:
+        ipv4_address: 192.168.92.3
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+    command: ip route del default && ip route add default 192.168.92.2
+
+networks:
+  asgard:
+    ipam:
+      config:
+        - subnet: 192.168.90.0/24
+  earth:
+    ipam:
+      config:
+        - subnet: 192.168.91.0/24
+  nilfheim:
+    ipam:
+      config:
+        - subnet: 192.168.92.0/24
+  dmz:
+    ipam:
+      config:
+        - subnet: 192.168.50.0/24
