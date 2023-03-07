@@ -1,0 +1,16 @@
+image: python:3.9-slim-buster
+
+pages:
+  stage: deploy
+  script:
+  - apt-get update
+  - pip install --upgrade pip
+  - pip install -U sphinx
+  - pip install sphinx-rtd-theme sphinx-tabs
+  - pip install -e .
+  - sphinx-build -b html docs/source public/
+  artifacts:
+    paths:
+    - public/
+  only:
+  - master
