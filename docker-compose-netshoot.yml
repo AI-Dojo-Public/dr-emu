@@ -10,8 +10,7 @@ services:
         ipv4_address: 192.168.90.1
       public:
         ipv4_address: 192.168.92.1
-    stdin_open: true
-    tty: true
+    entrypoint: ["sh", "-c", "ip route add 192.168.91.0/24 via 192.168.90.2 && sleep infinity"]
     cap_add:
       - NET_ADMIN
 
@@ -25,8 +24,7 @@ services:
         ipv4_address: 192.168.90.2
       private:
         ipv4_address: 192.168.91.1
-    stdin_open: true
-    tty: true
+    entrypoint: ["sh", "-c", "ip route add 192.168.92.0/24 via 192.168.90.1 && sleep infinity"]
     cap_add:
       - NET_ADMIN
 
