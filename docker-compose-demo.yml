@@ -3,24 +3,26 @@ services:
   wan_router:
     image: registry.gitlab.ics.muni.cz:443/244656/ai-dojo-docker-testbed:vyos-1.3
     restart: always
-    container_name: router
+    container_name: wan_router
     privileged: true
     networks:
       management:
         ipv4_address: 192.168.50.10
       dmz:
-        ipv4_address: 192.168.92.1
+        ipv4_address: 192.168.93.1
       cryton:
         ipv4_address: 192.168.90.1
+    volumes:
+      - ./router_scripts/wan_router.sh:/home/vyos/config.sh
     entrypoint: "/sbin/init"
-    command: ["sh". "-c" "su vyos && ./config.sh]
+    command: ["sh", "-c", "su vyos && sudo chmod +x config.sh && ./config.sh"]
     cap_add:
       - NET_ADMIN
 
   user_router:
     image: registry.gitlab.ics.muni.cz:443/244656/ai-dojo-docker-testbed:vyos-1.3
     restart: always
-    container_name: router2
+    container_name: user_router
     privileged: true
     networks:
       management:
@@ -30,22 +32,24 @@ services:
     volumes:
       - ./router_scripts/user_router.sh:/home/vyos/config.sh
     entrypoint: "/sbin/init"
-    command: ["sh". "-c" "su vyos && ./config.sh]
+    command: ["sh", "-c", "su vyos && ./config.sh"]
     cap_add:
       - NET_ADMIN
-      - 
+
   server_router:
     image: registry.gitlab.ics.muni.cz:443/244656/ai-dojo-docker-testbed:vyos-1.3
     restart: always
-    container_name: router2
+    container_name: server_router
     privileged: true
     networks:
       management:
         ipv4_address: 192.168.50.12
       server_subnet:
         ipv4_address: 192.168.92.1
+    volumes:
+      - ./router_scripts/sever_router.sh:/home/vyos/config.sh
     entrypoint: "/sbin/init"
-    command: ["sh". "-c" "su vyos && ./config.sh]
+    command: ["sh", "-c", "su vyos && ./config.sh"]
     cap_add:
       - NET_ADMIN
 
@@ -159,8 +163,6 @@ services:
     image: registry.gitlab.ics.muni.cz:443/cryton/cryton-worker:kali-latest
     container_name: cryton-worker
     depends_on:
-      router:
-        condition: service_started
       cryton_rabbit:
         condition: service_healthy
     environment:
@@ -190,15 +192,14 @@ services:
   loki:
     image: nicolaka/netshoot
     restart: always
-    depends_on:
-      - router
     container_name: loki
+    privileged: true
     networks:
       cryton:
         ipv4_address: 192.168.90.40
     cap_add:
       - NET_ADMIN
-    command: ['sleep', 'infinity' ]
+    command: ["sh", "-c", "ip route add 192.168.93.0/24 via 192.168.90.1 && sleep infinity"]
 
   cyst-demo:
     restart: always
@@ -303,15 +304,14 @@ services:
   thor:
     image: nicolaka/netshoot
     restart: always
-    depends_on:
-      - router
     container_name: thor
+    privileged: true
     networks:
       server_subnet:
         ipv4_address: 192.168.92.40
     cap_add:
       - NET_ADMIN
-    command: [ 'sh', '-c', 'ip route del default && ip route add default via 192.168.90.1 && sleep infinity' ]
+    command: [ 'sh', '-c', 'ip route del default && ip route add default via 192.168.92.1 && sleep infinity' ]
 
   vulnerable_user_machine:
     restart: always
@@ -329,15 +329,14 @@ services:
   odin:
     image: nicolaka/netshoot
     restart: always
-    depends_on:
-      - router
     container_name: odin
+    privileged: true
     networks:
       user_subnet:
         ipv4_address: 192.168.91.40
     cap_add:
       - NET_ADMIN
-    command: [ 'sh', '-c', 'ip route del default && ip route add default via 192.168.90.1 && sleep infinity' ]
+    command: [ 'sh', '-c', 'ip route del default && ip route add default via 192.168.91.1 && sleep infinity' ]
 
 volumes:
   cryton_core_db_data:

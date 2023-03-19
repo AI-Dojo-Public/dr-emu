@@ -8,6 +8,7 @@ services:
     volumes:
       - ./router_scripts/wan_router.sh:/home/vyos/config.sh
     entrypoint: "/sbin/init"
+    command: ["/bin/bash", "-c", "sudo chmod +x /home/vyos/config.sh && runuser -l vyos -c /home/vyos/config.sh"]
     cap_add:
       - NET_ADMIN
 
