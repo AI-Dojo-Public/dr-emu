@@ -3,10 +3,29 @@ import docker
 client = docker.from_env()
 
 
-class Container:
-    def __init__(self, name, gateway):
+class Network:
+    def __init__(self, subnet, name, gateway):
+        self.gateway = gateway
         self.name = name
-        self.gateway = name
+        self.subnet = subnet
+
+    def create_network(self):
+        ipam_pool = client.types.IPAMPool(
+            subnet=self.subnet,
+            gateway=self.gateway)
+
+        ipam_config = client.types.IPAMConfig(
+            pool_configs=[ipam_pool])
+
+        client.networks.create(self.name, driver="bridge", ipam=ipam_config)
+
+
+class Container:
+    def __init__(self, image, name, gateway, command):
+        self.command = command
+        self.image = image
+        self.name = name
+        self.gateway = gateway
 
 
 class NodeContainer(Container):
@@ -15,9 +34,13 @@ class NodeContainer(Container):
         self.ip = ip
         self.network = network
 
+    def create_container(self):
+        client.containers.create(self.image, self)
+
 
 class RouterContainer(Container):
-    def __init__(self, interfaces, networks, name, gateway):
+    def __init__(self, interfaces, networks, config_path, name, gateway):
         super().__init__(name, gateway)
         self.interfaces = interfaces
         self.networks = networks
+        self.config_path = config_path
