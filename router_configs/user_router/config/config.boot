@@ -1,5 +1,25 @@
+interfaces {
+    loopback lo {
+    }
+}
+protocols {
+    static {
+        route 0.0.0.0/0 {
+            next-hop 192.168.50.10 {
+            }
+        }
+    }
+}
 system {
-    host-name "vyos"
+    config-management {
+        commit-revisions 100
+    }
+    console {
+        device ttyS0 {
+            speed 115200
+        }
+    }
+    host-name vyos
     login {
         user vyos {
             authentication {
@@ -8,11 +28,21 @@ system {
             }
         }
     }
- }
-protocols {
-    static {
-        route 0.0.0.0/0 {
-            next-hop 192.168.50.10 {
+    ntp {
+        server time1.vyos.net {
+        }
+        server time2.vyos.net {
+        }
+        server time3.vyos.net {
+        }
+    }
+    syslog {
+        global {
+            facility all {
+                level info
+            }
+            facility protocols {
+                level debug
             }
         }
     }
