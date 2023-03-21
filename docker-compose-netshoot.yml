@@ -1,15 +1,13 @@
 version: '3.9'
 services:
   wan_router:
-    build:
-      context: .
-#      args:
-#        CONFIG: wan_router.sh
+    image: registry.gitlab.ics.muni.cz:443/244656/ai-dojo-docker-testbed:vyos-1.3
     restart: always
     container_name: wan_router
     privileged: true
     cap_add:
       - NET_ADMIN
+    entrypoint: ["sh", "-c", "ip route del default && /sbin/init"]
 
 #  loki:
 #    image: nicolaka/netshoot

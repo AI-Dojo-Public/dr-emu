@@ -3,8 +3,7 @@ services:
   wan_router:
     build:
       context: .
-      args:
-        config: wan_config.sh
+      target: wan_router
     restart: always
     container_name: wan_router
     privileged: true
@@ -15,16 +14,13 @@ services:
         ipv4_address: 192.168.93.1
       cryton:
         ipv4_address: 192.168.90.1
-    volumes:
-      - ./router_scripts/wan_router.sh:/home/vyos/config.sh
     cap_add:
       - NET_ADMIN
 
   user_router:
     build:
       context: .
-      args:
-        config: user_config.sh
+      target: user_router
     restart: always
     container_name: user_router
     privileged: true
@@ -33,18 +29,14 @@ services:
         ipv4_address: 192.168.50.11
       user_subnet:
         ipv4_address: 192.168.91.1
-    volumes:
-      - ./router_scripts/user_router.sh:/home/vyos/config.sh
-    entrypoint: "/sbin/init"
-    command: ["/bin/bash", "-c", "sudo chmod +x /home/vyos/config.sh ; runuser -u vyos -c ./config.sh"]
     cap_add:
       - NET_ADMIN
+    entrypoint: ["sh", "-c", "ip route del default && /sbin/init"]
 
   server_router:
     build:
       context: .
-      args:
-        config: server_config.sh
+      target: server_router
     restart: always
     container_name: server_router
     privileged: true
@@ -53,12 +45,9 @@ services:
         ipv4_address: 192.168.50.12
       server_subnet:
         ipv4_address: 192.168.92.1
-    volumes:
-      - ./router_scripts/server_router.sh:/home/vyos/config.sh
-    entrypoint: "/sbin/init"
-    command: ["/bin/bash", "-c", "sudo chmod +x /home/vyos/config.sh && runuser -l vyos -c ./config.sh"]
     cap_add:
       - NET_ADMIN
+    entrypoint: ["sh", "-c", "ip route del default && /sbin/init"]
 
   loki:
     image: nicolaka/netshoot
