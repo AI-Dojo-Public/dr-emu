@@ -29,8 +29,8 @@ class Container:
 
 
 class NodeContainer(Container):
-    def __init__(self, ip, network, name, gateway):
-        super().__init__(name, gateway)
+    def __init__(self, ip, network, name, gateway, image, command):
+        super().__init__(name, gateway, image, command)
         self.ip = ip
         self.network = network
 
@@ -39,8 +39,13 @@ class NodeContainer(Container):
 
 
 class RouterContainer(Container):
-    def __init__(self, interfaces, networks, config_path, name, gateway):
-        super().__init__(name, gateway)
+    def __init__(self, interfaces, networks, config_path, name, gateway,  image, command):
+        super().__init__(name, gateway, image, command)
         self.interfaces = interfaces
         self.networks = networks
         self.config_path = config_path
+
+    def create_router(self):
+        router_id = client.containers.run(self.image)
+        return router_id
+
