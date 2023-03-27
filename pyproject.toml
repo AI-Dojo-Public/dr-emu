@@ -10,6 +10,7 @@ packages = [{include = "ai_dojo_docker_testbed"}]
 python = "^3.11"
 docker = "^6.0.1"
 pyyaml = "^6.0"
+netaddr = "^0.8.0"
 
 
 [build-system]
