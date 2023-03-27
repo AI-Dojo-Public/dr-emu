@@ -1,18 +1,20 @@
 import docker
+import yaml
 
 client = docker.from_env()
 
 
 class Network:
-    def __init__(self, subnet, name, gateway):
+    def __init__(self, subnet, name, bridge_ip, gateway):
         self.gateway = gateway
+        self.bridge_ip = bridge_ip
         self.name = name
         self.subnet = subnet
 
     def create_network(self):
         ipam_pool = client.types.IPAMPool(
             subnet=self.subnet,
-            gateway=self.gateway)
+            gateway=self.bridge_ip)
 
         ipam_config = client.types.IPAMConfig(
             pool_configs=[ipam_pool])
@@ -49,3 +51,8 @@ class RouterContainer(Container):
         router_id = client.containers.run(self.image)
         return router_id
 
+
+with open('docker-compose.yml', 'r') as file:
+    demo_compose = yaml.safe_load(file)
+
+print(demo_compose)
