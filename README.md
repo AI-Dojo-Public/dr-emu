@@ -19,7 +19,7 @@ Then run docker compose and python script for network configuration on container
 poetry shell
 poetry install
 pip install -e cyst-core
-docker comopse up -d
+docker compose up -d
 python3 setup-containers.py
 ```
 
