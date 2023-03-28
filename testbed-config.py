@@ -39,7 +39,8 @@ class NodeContainer(Container):
         self.network = network
 
     def create_container(self):
-        client.containers.create(self.image, self)
+        container_id = client.containers.create(self.image)
+        return container_id
 
 
 class RouterContainer(Container):
@@ -50,5 +51,5 @@ class RouterContainer(Container):
         self.config_path = config_path
 
     def create_router(self):
-        router_id = client.containers.run(self.image)
+        router_id = client.containers.create(self.image)
         return router_id
