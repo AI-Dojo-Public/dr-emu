@@ -140,7 +140,7 @@ else:
 # -----------------------------------------------------------------------------
 # User machine
 # -----------------------------------------------------------------------------
-for ip in IPNetwork("192.168.94.0/24").iter_hosts():
+for ip in IPNetwork("192.168.91.0/24").iter_hosts():
     a = actions["mv:scan"]
     attacker.execute_action(str(ip), "", a, session)
     env.control.run()

@@ -40,7 +40,7 @@ scripted_attacker = NodeConfig(
     ],
     traffic_processors=[],
     interfaces=[
-        InterfaceConfig(IPAddress("192.168.91.30"), IPNetwork("192.168.91.0/24"))
+        InterfaceConfig(IPAddress("192.168.90.30"), IPNetwork("192.168.90.0/24"))
     ],
     shell="",
     id="attacker_node"
@@ -85,7 +85,6 @@ wordpress_srv = NodeConfig(
     ],
     traffic_processors=[],
     interfaces=[
-        InterfaceConfig(IPAddress("192.168.93.10"), IPNetwork("192.168.93.0/24")),
         InterfaceConfig(IPAddress("192.168.93.11"), IPNetwork("192.168.93.0/24"))
     ],
     shell="",
@@ -196,7 +195,7 @@ user_pc = NodeConfig(
     ],
     traffic_processors=[],
     interfaces=[
-        InterfaceConfig(IPAddress("192.168.94.21"), IPNetwork("192.168.94.0/24"))
+        InterfaceConfig(IPAddress("192.168.91.20"), IPNetwork("192.168.91.0/24"))
     ],
     shell="",
     id="user_node"
@@ -207,8 +206,9 @@ user_pc = NodeConfig(
 # -----------------------------------------------------------------------------
 perimeter_router = RouterConfig(
     interfaces=[
-        InterfaceConfig(IPAddress("192.168.91.1"), IPNetwork("192.168.91.1/24"), index=0),
-        InterfaceConfig(IPAddress("192.168.93.1"), IPNetwork("192.168.93.1/24"), index=1)
+        InterfaceConfig(IPAddress("192.168.50.10"), IPNetwork("192.168.50.0/24"), index=0),
+        InterfaceConfig(IPAddress("192.168.90.1"), IPNetwork("192.168.90.1/24"), index=1),
+        InterfaceConfig(IPAddress("192.168.93.1"), IPNetwork("192.168.93.1/24"), index=2)
     ],
     traffic_processors=[
         FirewallConfig(
@@ -219,9 +219,9 @@ perimeter_router = RouterConfig(
                     policy=FirewallPolicy.DENY,
                     # Enable free flow of packets between outside and DMZ
                     rules=[
-                        FirewallRule(src_net=IPNetwork("192.168.91.0/24"), dst_net=IPNetwork("192.168.93.0/24"),
+                        FirewallRule(src_net=IPNetwork("192.168.90.0/24"), dst_net=IPNetwork("192.168.93.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.93.0/24"), dst_net=IPNetwork("192.168.91.0/24"),
+                        FirewallRule(src_net=IPNetwork("192.168.93.0/24"), dst_net=IPNetwork("192.168.90.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW)
                     ]
                 )
@@ -241,10 +241,9 @@ perimeter_connections = [
 # -----------------------------------------------------------------------------
 internal_router = RouterConfig(
     interfaces=[
-        InterfaceConfig(IPAddress("192.168.92.1"), IPNetwork("192.168.91.1/24"), index=0),
-        InterfaceConfig(IPAddress("192.168.92.1"), IPNetwork("192.168.91.1/24"), index=1),
-        InterfaceConfig(IPAddress("192.168.93.1"), IPNetwork("192.168.93.1/24"), index=2),
-        InterfaceConfig(IPAddress("192.168.94.1"), IPNetwork("192.168.94.1/24"), index=3)
+        InterfaceConfig(IPAddress("192.168.50.11"), IPNetwork("192.168.50.0/24"), index=0),
+        InterfaceConfig(IPAddress("192.168.91.1"), IPNetwork("192.168.91.0/24"), index=1),
+        InterfaceConfig(IPAddress("192.168.92.1"), IPNetwork("192.168.92.0/24"), index=2),
     ],
     traffic_processors=[
         FirewallConfig(
@@ -255,17 +254,17 @@ internal_router = RouterConfig(
                     policy=FirewallPolicy.DENY,
                     rules=[
                         # Enable traffic flow between the three networks
-                        FirewallRule(src_net=IPNetwork("192.168.92.0/24"), dst_net=IPNetwork("192.168.93.0/24"),
+                        FirewallRule(src_net=IPNetwork("192.168.50.0/24"), dst_net=IPNetwork("192.168.91.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.92.0/24"), dst_net=IPNetwork("192.168.94.0/24"),
+                        FirewallRule(src_net=IPNetwork("192.168.50.0/24"), dst_net=IPNetwork("192.168.92.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.93.0/24"), dst_net=IPNetwork("192.168.92.0/24"),
+                        FirewallRule(src_net=IPNetwork("192.168.91.0/24"), dst_net=IPNetwork("192.168.50.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.93.0/24"), dst_net=IPNetwork("192.168.94.0/24"),
+                        FirewallRule(src_net=IPNetwork("192.168.92.0/24"), dst_net=IPNetwork("192.168.50.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.94.0/24"), dst_net=IPNetwork("192.168.92.0/24"),
+                        FirewallRule(src_net=IPNetwork("192.168.91.0/24"), dst_net=IPNetwork("192.168.92.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.94.0/24"), dst_net=IPNetwork("192.168.93.0/24"),
+                        FirewallRule(src_net=IPNetwork("192.168.92.0/24"), dst_net=IPNetwork("192.168.91.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW)
                     ]
                 )
@@ -276,10 +275,9 @@ internal_router = RouterConfig(
 )
 
 inside_connections = [
-    ConnectionConfig("vsftpd_node", 0, "internal_router", 0),
-    ConnectionConfig("postgres_node", 0, "internal_router", 1),
-    ConnectionConfig("wordpress_node", 0, "internal_router", 2),
-    ConnectionConfig("user_node", 0, "internal_router", 3)
+    ConnectionConfig("vsftpd_node", 0, "internal_router", 2),
+    ConnectionConfig("postgres_node", 0, "internal_router", 2),
+    ConnectionConfig("user_node", 0, "internal_router", 1)
 ]
 
 # Exploits
