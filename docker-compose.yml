@@ -198,7 +198,7 @@ services:
     container_name: cyst-demo
     volumes:
       - ./cyst_components/cyst-core/:/app/cyst-core
-      - ./cyst_components/beast-demo/:/app/beast-demo
+      - ./cyst_components/beast_demo/:/app/beast_demo
       - ./resources/run_scenario_2.sh/:/app/run_scenario_2.sh
       - ./resources/run_scenario_3.sh/:/app/run_scenario_3.sh
     stdin_open: true

@@ -1,6 +1,0 @@
-.idea/
-**/__pycache__
-venv/
-build/
-dist/
-cyst_scenario_beast.egg-info/
