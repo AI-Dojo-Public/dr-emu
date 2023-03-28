@@ -1,14 +1,16 @@
 import docker
-import yaml
+from netaddr import IPAddress, IPNetwork
+import cyst_infrastructure
+import randomname
+
 
 client = docker.from_env()
 
 
 class Network:
-    def __init__(self, subnet, name, bridge_ip, gateway):
-        self.gateway = gateway
+    def __init__(self, subnet, bridge_ip):
         self.bridge_ip = bridge_ip
-        self.name = name
+        self.name = randomname.get_name(adj='colors', noun='astronomy')
         self.subnet = subnet
 
     def create_network(self):
@@ -41,7 +43,7 @@ class NodeContainer(Container):
 
 
 class RouterContainer(Container):
-    def __init__(self, interfaces, networks, config_path, name, gateway,  image, command):
+    def __init__(self, interfaces, networks, config_path, name, gateway, image, command):
         super().__init__(name, gateway, image, command)
         self.interfaces = interfaces
         self.networks = networks
@@ -50,9 +52,3 @@ class RouterContainer(Container):
     def create_router(self):
         router_id = client.containers.run(self.image)
         return router_id
-
-
-with open('docker-compose.yml', 'r') as file:
-    demo_compose = yaml.safe_load(file)
-
-print(demo_compose)
