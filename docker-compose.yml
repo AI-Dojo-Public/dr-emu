@@ -17,32 +17,18 @@ services:
     cap_add:
       - NET_ADMIN
 
-  user_router:
+  internal_router:
     build:
       context: .
-      target: user_router
+      target: internal_router
     restart: always
-    container_name: user_router
+    container_name: internal-router
     privileged: true
     networks:
       management:
         ipv4_address: 192.168.50.11
       user_subnet:
         ipv4_address: 192.168.91.1
-    cap_add:
-      - NET_ADMIN
-    entrypoint: ["sh", "-c", "ip route del default && /sbin/init"]
-
-  server_router:
-    build:
-      context: .
-      target: server_router
-    restart: always
-    container_name: server_router
-    privileged: true
-    networks:
-      management:
-        ipv4_address: 192.168.50.12
       server_subnet:
         ipv4_address: 192.168.92.1
     cap_add:
@@ -292,8 +278,6 @@ services:
     networks:
       server_subnet:
         ipv4_address: 192.168.92.20
-    environment:
-      GATEWAY: 192.168.92.1
     cap_add:
       - NET_ADMIN
 
