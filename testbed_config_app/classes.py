@@ -1,21 +1,24 @@
 import docker
-from netaddr import IPAddress, IPNetwork
-import cyst_infrastructure
 import randomname
-
+from typing import List, Dict
 
 client = docker.from_env()
 
 
 class Network:
-    def __init__(self, subnet, bridge_ip):
+    def __init__(self, ip, bridge_ip, gateway, name=None):
+        self.gateway = gateway
         self.bridge_ip = bridge_ip
-        self.name = randomname.get_name(adj='colors', noun='astronomy')
-        self.subnet = subnet
+        self.ip = ip
+
+        if name is None:
+            self.name = randomname.get_name(adj='colors', noun='astronomy')
+        else:
+            self.name = name
 
     def create_network(self):
         ipam_pool = client.types.IPAMPool(
-            subnet=self.subnet,
+            subnet=self.ip,
             gateway=self.bridge_ip)
 
         ipam_config = client.types.IPAMConfig(
@@ -25,7 +28,7 @@ class Network:
 
 
 class Container:
-    def __init__(self, image, name, gateway, command):
+    def __init__(self, name, gateway=None, command=None, image=None):
         self.command = command
         self.image = image
         self.name = name
@@ -33,10 +36,11 @@ class Container:
 
 
 class NodeContainer(Container):
-    def __init__(self, ip, network, name, gateway, image, command):
+    def __init__(self, ip, network, name, gateway=None, command=None, image=None):
         super().__init__(name, gateway, image, command)
         self.ip = ip
         self.network = network
+        self.gateway = gateway
 
     def create_container(self):
         container_id = client.containers.create(self.image)
@@ -44,10 +48,9 @@ class NodeContainer(Container):
 
 
 class RouterContainer(Container):
-    def __init__(self, interfaces, networks, config_path, name, gateway, image, command):
+    def __init__(self, interfaces, name, gateway=None, command=None, image=None, config_path=None):
         super().__init__(name, gateway, image, command)
         self.interfaces = interfaces
-        self.networks = networks
         self.config_path = config_path
 
     def create_router(self):

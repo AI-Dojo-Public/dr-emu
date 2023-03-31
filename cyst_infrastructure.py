@@ -280,6 +280,10 @@ inside_connections = [
     ConnectionConfig("user_node", 0, "internal_router", 1)
 ]
 
+router_connections = [
+    ConnectionConfig("perimeter_router", 0, "internal_router", 0)
+]
+
 # Exploits
 vsftpd_exploit = ExploitConfig([VulnerableServiceConfig("vsftpd", "2.3.4")], ExploitLocality.REMOTE, ExploitCategory.CODE_EXECUTION)
 
