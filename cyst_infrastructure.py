@@ -5,7 +5,7 @@ from netaddr import IPAddress, IPNetwork
 from cyst.api.configuration import AuthenticationProviderConfig, PassiveServiceConfig, AccessSchemeConfig, \
     AuthorizationDomainConfig, AuthorizationDomainType, AuthorizationConfig, NodeConfig, InterfaceConfig, \
     ActiveServiceConfig, RouterConfig, ConnectionConfig, FirewallConfig, FirewallChainConfig, ExploitConfig, \
-    ExploitCategory, ExploitLocality, VulnerableServiceConfig, DataConfig
+    ExploitCategory, ExploitLocality, VulnerableServiceConfig, DataConfig, PortConfig
 
 from cyst.api.environment.configuration import ServiceParameter
 from cyst.api.logic.access import AccessLevel, AuthenticationProviderType, AuthenticationTokenType, AuthenticationTokenSecurity
@@ -206,7 +206,7 @@ user_pc = NodeConfig(
 # -----------------------------------------------------------------------------
 perimeter_router = RouterConfig(
     interfaces=[
-        InterfaceConfig(IPAddress("192.168.50.10"), IPNetwork("192.168.50.0/24"), index=0),
+        # PortConfig(index=0),  # Future port or internal router (not implemented yet)
         InterfaceConfig(IPAddress("192.168.90.1"), IPNetwork("192.168.90.0/24"), index=1),
         InterfaceConfig(IPAddress("192.168.93.1"), IPNetwork("192.168.93.0/24"), index=2)
     ],
@@ -241,7 +241,7 @@ perimeter_connections = [
 # -----------------------------------------------------------------------------
 internal_router = RouterConfig(
     interfaces=[
-        InterfaceConfig(IPAddress("192.168.50.11"), IPNetwork("192.168.50.0/24"), index=0),
+        # PortConfig(index=0),  # Future port for perimeter router (not implemented yet)
         InterfaceConfig(IPAddress("192.168.91.1"), IPNetwork("192.168.91.0/24"), index=1),
         InterfaceConfig(IPAddress("192.168.92.1"), IPNetwork("192.168.92.0/24"), index=2),
     ],
@@ -254,14 +254,6 @@ internal_router = RouterConfig(
                     policy=FirewallPolicy.DENY,
                     rules=[
                         # Enable traffic flow between the three networks
-                        FirewallRule(src_net=IPNetwork("192.168.50.0/24"), dst_net=IPNetwork("192.168.91.0/24"),
-                                     service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.50.0/24"), dst_net=IPNetwork("192.168.92.0/24"),
-                                     service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.91.0/24"), dst_net=IPNetwork("192.168.50.0/24"),
-                                     service="*", policy=FirewallPolicy.ALLOW),
-                        FirewallRule(src_net=IPNetwork("192.168.92.0/24"), dst_net=IPNetwork("192.168.50.0/24"),
-                                     service="*", policy=FirewallPolicy.ALLOW),
                         FirewallRule(src_net=IPNetwork("192.168.91.0/24"), dst_net=IPNetwork("192.168.92.0/24"),
                                      service="*", policy=FirewallPolicy.ALLOW),
                         FirewallRule(src_net=IPNetwork("192.168.92.0/24"), dst_net=IPNetwork("192.168.91.0/24"),

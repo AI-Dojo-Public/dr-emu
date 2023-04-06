@@ -1,2 +1,6 @@
+from netaddr import IPAddress, IPNetwork
+
 PERIMETER_ROUTER = "perimeter_router"
-MANAGEMENT_NETWORK = "management_network"
+MANAGEMENT_NETWORK_IP = IPNetwork("192.168.50.0/29")
+MANAGEMENT_NETWORK_BRIDGE_IP = MANAGEMENT_NETWORK_IP[-2]
+MANAGEMENT_NETWORK_NAME = "management_network"
