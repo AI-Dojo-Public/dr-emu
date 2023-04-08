@@ -26,10 +26,6 @@ def parse_networks(cyst_routers: cyst_infrastructure.routers):
     for network in network_objects:
         networks_dict[network.name] = network
 
-    print("Networks:")
-    for network in networks_dict.values():
-        print(
-            f"name: {network.name}, gateway: {network.gateway}, bridge_ip: {network.bridge_ip}, ip_addr: {network.ip}")
     return networks_dict
 
 
@@ -38,13 +34,11 @@ def parse_nodes(cyst_nodes: cyst_infrastructure.nodes, testbed_networks: Dict[st
     for node in cyst_nodes:
         for network in testbed_networks.values():
             if network.ip == node.interfaces[0].net:
-                node_objects[node.id] = NodeContainerConfig(node.id, node.interfaces[0].ip, node.interfaces[0].net,
-                                                            network.name, network.gateway, image=docker_img)
+                current_node = NodeContainerConfig(node.id, node.interfaces[0].ip,
+                                                   network.name, network.gateway, image=docker_img)
+                network.node_containers.append(current_node)
+                node_objects[node.id] = current_node
 
-    print("\nNodes:")
-    for mynode in node_objects.values():
-        print(f"name: {mynode.name}, ip: {mynode.ipaddress}, network: {mynode.network_ip} "
-              f"network_name: {mynode.network_name}, gateway: {mynode.gateway}")
     return node_objects
 
 
@@ -62,11 +56,6 @@ def parse_routers(cyst_routers: cyst_infrastructure.routers, testbed_networks: D
         else:
             router.gateway = router_objects[constants.PERIMETER_ROUTER].ipaddress
 
-    print("\nRouters:")
-    for router in router_objects.values():
-        print(f"name: {router.name}, router_gateway: {router.gateway} network_name: {router.network_name} interfaces:")
-        for interface in router.interfaces:
-            print(interface.ip)
     return router_objects
 
 
@@ -103,3 +92,21 @@ networks = parse_networks(cyst_infrastructure.routers)
 routers = parse_routers(cyst_infrastructure.routers, networks)
 
 nodes = parse_nodes(cyst_infrastructure.nodes, networks)
+
+print("Networks:")
+for network in networks.values():
+    print(
+        f"name: {network.name}, gateway: {network.gateway}, bridge_ip: {network.bridge_ip}, ip_addr: {network.ip}, nodes:")
+    for node in network.node_containers:
+        print(node.name)
+
+print("\nNodes:")
+for mynode in nodes.values():
+    print(f"name: {mynode.name}, ip: {mynode.ipaddress} "
+          f"network_name: {mynode.network_name}, gateway: {mynode.gateway}")
+
+print("\nRouters:")
+for myrouter in routers.values():
+    print(f"name: {myrouter.name}, router_gateway: {myrouter.gateway} network_name: {myrouter.network_name} interfaces:")
+    for interface in myrouter.interfaces:
+        print(interface.ip)

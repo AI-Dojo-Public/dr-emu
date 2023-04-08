@@ -77,9 +77,8 @@ class NetworkConfig(docker.client.NetworkCollection):
 
 
 class NodeContainerConfig(ContainerConfig):
-    def __init__(self, name, ipaddress, network_ip, network_name, gateway=None, command=None, image=None):
+    def __init__(self, name, ipaddress, network_name, gateway=None, command=None, image=None):
         super().__init__(name, gateway, command, image, ipaddress, network_name)
-        self.network_ip = network_ip
 
     def configure_container(self):
 
@@ -96,7 +95,7 @@ class NodeContainerConfig(ContainerConfig):
         self.container.exec_run(f"ip route add default via {str(self.gateway)}")
 
 
-# TODO: figure out router ip addressing in management network and network connections
+# TODO: figure out router config (static ip routing)
 class RouterContainerConfig(ContainerConfig):
     def __init__(self, name, interfaces, gateway=None, command=None, image=None, config_path=None,
                  management_ipaddress=None, network_name=constants.MANAGEMENT_NETWORK_NAME):

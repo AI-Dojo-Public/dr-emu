@@ -1,9 +1,9 @@
 from cyst_infrastructure_parser import nodes, networks, routers
 from util import constants
+from ipaddress import IPv4Network, IPv4Address
 from classes import ContainerConfig, RouterContainerConfig, NodeContainerConfig, NetworkConfig
 
 node_img = "python:3.9-slim-buster"
-router_img = "nicolaka/netshoot"
 
 try:
     for network in networks.values():
@@ -27,8 +27,8 @@ try:
 
 except Exception:
     for container in [*nodes.values(), *routers.values()]:
-        container.cotaniner.kill()
-        container.cotaniner.remove()
+        container.container.kill()
+        container.container.remove()
 
     for network in networks.values():
         network.network.remove()
