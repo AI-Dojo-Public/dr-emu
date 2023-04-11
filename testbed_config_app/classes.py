@@ -13,9 +13,8 @@ client = docker.from_env()
 
 
 class ContainerConfig(docker.client.ContainerCollection):
-    def __init__(self, name, gateway, command, image, ipaddress, network_name):
+    def __init__(self, name, gateway, command, image, ipaddress):
         super().__init__(client)
-        self.network_name = network_name
         self.ipaddress = ipaddress
         self.command = command
         self.image = image
@@ -33,7 +32,6 @@ class ContainerConfig(docker.client.ContainerCollection):
     def create_container(self):
         container = self.create(image=self.image,
                                 name=self.name,
-                                network=self.network_name,
                                 command="sleep infinity",
                                 cap_add="NET_ADMIN")
 
@@ -73,12 +71,13 @@ class NetworkConfig(docker.client.NetworkCollection):
 
     def connect_node_containers(self):
         for node in self.node_containers:
+            client.networks.get("bridge").disconnect(node.container_id)
             self.network.connect(node.name, ipv4_address=str(node.ipaddress))
 
 
 class NodeContainerConfig(ContainerConfig):
-    def __init__(self, name, ipaddress, network_name, gateway=None, command=None, image=None):
-        super().__init__(name, gateway, command, image, ipaddress, network_name)
+    def __init__(self, name, ipaddress, gateway=None, command=None, image=None):
+        super().__init__(name, gateway, command, image, ipaddress)
 
     def configure_container(self):
 
@@ -98,8 +97,9 @@ class NodeContainerConfig(ContainerConfig):
 # TODO: figure out router config (static ip routing)
 class RouterContainerConfig(ContainerConfig):
     def __init__(self, name, interfaces, gateway=None, command=None, image=None, config_path=None,
-                 management_ipaddress=None, network_name=constants.MANAGEMENT_NETWORK_NAME):
-        super().__init__(name, gateway, command, image, management_ipaddress, network_name)
+                 management_ipaddress=None):
+        super().__init__(name, gateway, command, image, management_ipaddress)
+        self.network_name = constants.MANAGEMENT_NETWORK_NAME
         self.interfaces = interfaces
         self.config_path = config_path
 
@@ -116,6 +116,7 @@ class RouterContainerConfig(ContainerConfig):
 
     def connect_router_to_networks(self, networks: Dict[str, NetworkConfig]):
         networks[constants.MANAGEMENT_NETWORK_NAME].network.connect(self.container_id, ipv4_address=str(self.ipaddress))
+        client.networks.get("bridge").disconnect(self.container_id)
         for network in networks.values():
             for interface in self.interfaces:
                 if interface.net == network.ip:

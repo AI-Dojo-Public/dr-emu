@@ -1,5 +1,4 @@
 import docker
-# TODO: use configured objects from cyst_core instead of cyst_infra input?
 import cyst_infrastructure
 from classes import NetworkConfig, NodeContainerConfig, RouterContainerConfig
 from util import constants
@@ -102,8 +101,7 @@ for network in networks.values():
 
 print("\nNodes:")
 for mynode in nodes.values():
-    print(f"name: {mynode.name}, ip: {mynode.ipaddress} "
-          f"network_name: {mynode.network_name}, gateway: {mynode.gateway}")
+    print(f"name: {mynode.name}, ip: {mynode.ipaddress}, gateway: {mynode.gateway}")
 
 print("\nRouters:")
 for myrouter in routers.values():
