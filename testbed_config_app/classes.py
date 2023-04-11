@@ -107,8 +107,11 @@ class RouterContainerConfig(ContainerConfig):
         for command in ["apt update -y", "apt install iproute2 -y"]:
             self.container.exec_run(command)
         if self.name == constants.PERIMETER_ROUTER:
-            self.container.exec_run(f"ip route add 192.168.91.0/24 via {str(routers['internal_router'].ipaddress)}")
-            self.container.exec_run(f"ip route add 192.168.92.0/24 via {str(routers['internal_router'].ipaddress)}")
+            for router in routers.values():
+                if router.name == self.name:
+                    continue
+                for interface in router.interfaces:
+                    self.container.exec_run(f"ip route add {str(interface.net)} via {str(router.ipaddress)}")
             self.container.exec_run("iptables --table nat --append POSTROUTING --out-interface eth0 --source 192.168.0.0/16 -j MASQUERADE")
         else:
             self.container.exec_run("ip route del default")
