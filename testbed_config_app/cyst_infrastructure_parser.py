@@ -33,8 +33,10 @@ def parse_nodes(cyst_nodes: cyst_infrastructure.nodes, testbed_networks: Dict[st
     for node in cyst_nodes:
         for network in testbed_networks.values():
             if network.ip == node.interfaces[0].net:
+                node_docker_info = constants.TESTBED_INFO[node.id]
                 current_node = NodeContainerConfig(node.id, node.interfaces[0].ip,
-                                                   network.name, network.gateway, image=docker_img)
+                                                   network.gateway, node_docker_info[constants.COMMAND],
+                                                   node_docker_info[constants.IMAGE])
                 network.node_containers.append(current_node)
                 node_objects[node.id] = current_node
 
