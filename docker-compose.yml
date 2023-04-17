@@ -75,7 +75,7 @@ services:
     restart: always
     image: registry.gitlab.ics.muni.cz:443/cryton/cryton-core:proxy
     container_name: cryton-proxy
-    network_mode: service:cryton_core
+    network_mode: container:cryton-core
     depends_on:
       cryton_core:
         condition: service_started
@@ -237,7 +237,6 @@ services:
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: wordpress
       WORDPRESS_DB_NAME: wordpress
-      GATEWAY: 192.168.93.1
     depends_on:
       wordpress_db:
         condition: service_healthy
@@ -267,7 +266,7 @@ services:
     volumes:
       - wordpress_app_html:/var/www/html
     entrypoint: sh
-    command: -c 'wp core install --url="http://192.168.91.10" --title="wordpress" --admin_name=wordpress --admin_password="wordpress" --admin_email=wordpress@wordpress.wordpress'
+    command: -c 'wp core install --url="http://192.168.93.10" --title="wordpress" --admin_name=wordpress --admin_password="wordpress" --admin_email=wordpress@wordpress.wordpress'
 
   vulnerable_ftp:
     restart: always
@@ -308,8 +307,6 @@ services:
     build:
       context: .
       dockerfile: docker_files/Dockerfile-beast-user
-    environment:
-      GATEWAY: 192.168.91.1
     networks:
       user_subnet:
         ipv4_address: 192.168.91.20

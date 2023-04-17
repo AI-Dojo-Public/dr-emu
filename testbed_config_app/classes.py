@@ -1,5 +1,6 @@
 from typing import Dict, List
 
+import cyst_infrastructure
 import docker
 import docker.types
 import randomname
@@ -29,11 +30,12 @@ class ContainerConfig(docker.client.ContainerCollection):
         """
         return self.get(self.container_id)
 
-    def create_container(self):
+    def create_container(self, **kwargs):
         container = self.create(image=self.image,
                                 name=self.name,
                                 command="sleep infinity",
-                                cap_add="NET_ADMIN")
+                                cap_add="NET_ADMIN",
+                                **kwargs)
 
         self.container_id = container.id
 
@@ -47,7 +49,9 @@ class NetworkConfig(docker.client.NetworkCollection):
         self.network_id = None
         self.node_containers: List[ContainerConfig] = []
 
-        if name is None:
+        if self.ip == cyst_infrastructure.IPNetwork("192.168.90.0/24"):
+            self.name = "cryton"
+        elif name is None:
             self.name = randomname.get_name(adj='colors', noun='astronomy')
         else:
             self.name = name
@@ -76,22 +80,29 @@ class NetworkConfig(docker.client.NetworkCollection):
 
 
 class NodeContainerConfig(ContainerConfig):
-    def __init__(self, name, ipaddress, gateway=None, command=None, image=None):
+    def __init__(self, name, ipaddress, gateway=None, command=None, image=None, envs=None):
         super().__init__(name, gateway, command, image, ipaddress)
 
     def configure_container(self):
-
+        distro = ""
         # select setup commands based on linux distro
-        distro = re.search(
-            "ID=([a-z]{0,10})", self.container.exec_run("cat /etc/os-release").output.decode("utf-8")
-        ).group(1)
-        setup_commands = DistroSetup[distro].value
+        for os in DistroSetup:
+            if os.name in self.container.exec_run("cat /etc/os-release").output.decode("utf-8"):
+                distro = os.name
+
+        try:
+            setup_commands = DistroSetup[distro].value
+        except KeyError:
+            raise KeyError(f"distro {distro} from container {self.name} is not in DistroSetup")
 
         for command in setup_commands:
             self.container.exec_run(command)
 
-        self.container.exec_run("ip route del default")
-        self.container.exec_run(f"ip route add default via {str(self.gateway)}")
+            if self.name == "attacker_node":
+                self.container.exec_run(f"ip route add 192.168.93.0/24 via {str(self.gateway)}")
+            else:
+                self.container.exec_run("ip route del default")
+                self.container.exec_run(f"ip route add default via {str(self.gateway)}")
 
 
 # TODO: figure out router config (static ip routing)
@@ -128,5 +139,6 @@ class RouterContainerConfig(ContainerConfig):
 
 class DistroSetup(Enum):
     debian = ["apt update -y", "apt install iproute2 -y"]
+    ubuntu = debian
     alpine = ["apk update", "apk add --upgrade iproute2"]
     fedora = ["dnf update -y", "dnf install iproute2 -y"]
