@@ -1,30 +1,33 @@
-# AI-dojo docker testbed
+# AI-dojo Docker testbed
 This project serves as a demonstration of semi-realistic network topology generation using a docker for AI-DOJO.
 
-## TODO: Update cyst infrastructure.py
-
 ## Requirements
-- python 3.11
+- [Python](https://www.python.org/) >= 3.9, < 3.12
+- [Docker](https://docs.docker.com/engine/install/)
 
-## Build the infrastructure
-First, we clone the demo itself (if you haven't already):
-```bash
+## Installation
+Clone the repo:
+```shell
 git clone git@gitlab.ics.muni.cz:ai-dojo/docker-testbed.git
 cd docker-testbed
-git clone git@gitlab.ics.muni.cz:cyst/cyst-core.git
 ```
 
-Then run docker compose and python script for network configuration on containers.
-```bash
-poetry shell
+**Notice: To be able to proceed with the installation, make sure you have set up [ssh keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent) and have access to the [CYST Core](https://gitlab.ics.muni.cz/cyst/cyst-core) repository.**
+
+Install the application:
+```shell
 poetry install
-pip install -e cyst-core
-docker compose up -d
-python3 setup-containers.py
 ```
 
-## Run scenario
+## Build the infrastructure
+Make sure the necessary images exist:
+```shell
+docker build -t base --target base .
+docker build -t router --target router .
+docker build -t node --target node .
+```
+
+To build the infrastructure use:
 ```bash
-docker exec -it cryton-cli bash
-./app/run_scenario_1.sh
+poetry run python docker_testbed/main.py
 ```

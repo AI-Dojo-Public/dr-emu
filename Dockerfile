@@ -1,7 +1,11 @@
-FROM registry.gitlab.ics.muni.cz:443/244656/ai-dojo-docker-testbed:vyos-1.3 as wan_router
+FROM alpine:3.17 as base
 
-COPY ./router_configs/wan_router/config /opt/vyatta/etc/config
+RUN apk add --no-cache \
+    bash
 
-FROM registry.gitlab.ics.muni.cz:443/244656/ai-dojo-docker-testbed:vyos-1.3 as internal_router
+FROM base as node
 
-COPY ./router_configs/user_router/config /opt/vyatta/etc/config
+FROM base as router
+
+RUN apk add --no-cache \
+    iptables
