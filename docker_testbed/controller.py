@@ -1,5 +1,3 @@
-from docker import DockerClient
-
 from docker_testbed.lib.network import Network
 from docker_testbed.lib.node import Node
 from docker_testbed.lib.router import Router
@@ -28,19 +26,22 @@ class Controller:
         for node in self.nodes:
             node.start()
 
-    def stop(self):
-        self.delete_nodes()
-        self.delete_routers()
-        self.delete_networks()
+    def stop(self, check_id: bool = False):
+        self.delete_nodes(check_id)
+        self.delete_routers(check_id)
+        self.delete_networks(check_id)
 
-    def delete_networks(self):
+    def delete_networks(self, check_id: bool):
         for network in self.networks:
-            network.delete()
+            if not check_id or (check_id and network.id != ""):
+                network.delete()
 
-    def delete_routers(self):
+    def delete_routers(self, check_id: bool):
         for router in self.routers:
-            router.delete()
+            if not check_id or (check_id and router.id != ""):
+                router.delete()
 
-    def delete_nodes(self):
+    def delete_nodes(self, check_id: bool):
         for node in self.nodes:
-            node.delete()
+            if not check_id or (check_id and node.id != ""):
+                node.delete()

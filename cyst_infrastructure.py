@@ -1,17 +1,14 @@
-import uuid
-
 from netaddr import IPAddress, IPNetwork
 
 from cyst.api.configuration import AuthenticationProviderConfig, PassiveServiceConfig, AccessSchemeConfig, \
     AuthorizationDomainConfig, AuthorizationDomainType, AuthorizationConfig, NodeConfig, InterfaceConfig, \
     ActiveServiceConfig, RouterConfig, ConnectionConfig, FirewallConfig, FirewallChainConfig, ExploitConfig, \
-    ExploitCategory, ExploitLocality, VulnerableServiceConfig, DataConfig, PortConfig
+    ExploitCategory, ExploitLocality, VulnerableServiceConfig, DataConfig  # , PortConfig
 
 from cyst.api.environment.configuration import ServiceParameter
-from cyst.api.logic.access import AccessLevel, AuthenticationProviderType, AuthenticationTokenType, AuthenticationTokenSecurity
+from cyst.api.logic.access import AccessLevel, AuthenticationProviderType, AuthenticationTokenType, \
+    AuthenticationTokenSecurity
 from cyst.api.network.firewall import FirewallPolicy, FirewallChainType, FirewallRule
-
-from cyst.core.logic.access import AuthenticationTokenImpl
 
 # -----------------------------------------------------------------------------
 # Scripted attacker

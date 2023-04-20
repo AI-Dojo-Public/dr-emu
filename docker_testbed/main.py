@@ -12,7 +12,11 @@ if __name__ == '__main__':
 
     controller = Controller(parser.networks, parser.routers, parser.nodes)
 
-    controller.start()
+    try:
+        controller.start()
+    except Exception as ex:
+        controller.stop(check_id=True)
+        raise ex
 
     while input("Type in \"Y\" and press ENTER to exit: ").lower() != "y":
         continue
