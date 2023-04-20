@@ -10,7 +10,7 @@ from docker_testbed.lib.service import Service
 from docker_testbed.util import constants
 
 
-class BaseNode(base.Base):
+class BaseNode(base.BaseGeneral):
     def __init__(self, client: DockerClient, name: str, ip: IPAddress, network: Network,
                  image: str, tty: bool, detach: bool, cap_add: list):
         super().__init__(client)
@@ -25,16 +25,22 @@ class BaseNode(base.Base):
     def get(self) -> Container:
         return self.client.containers.get(self.id)
 
-    def create(self):
-        network_config = self.client.api.create_networking_config({
+    def _create_network_config(self):
+        return self.client.api.create_networking_config({
             self.network.name: self.client.api.create_endpoint_config(ipv4_address=str(self.ip))
         })
-        host_config = self.client.api.create_host_config(cap_add=self.cap_add)
+
+    def _create_host_config(self):
+        return self.client.api.create_host_config(cap_add=self.cap_add)
+
+    def create(self):
+        network_config = self._create_network_config()
+        host_config = self._create_host_config()
 
         self.id = self.client.api.create_container(
             self.image, name=self.name, tty=self.tty, detach=self.detach, networking_config=network_config,
             host_config=host_config
-        )
+        )["Id"]
 
     @abstractmethod
     def configure(self):
@@ -56,11 +62,15 @@ class Node(BaseNode):
                  image: str = constants.IMAGE_NODE, tty: bool = True, detach: bool = True, cap_add: list = None):
         super().__init__(client, name, ip, network, image, tty, detach, cap_add)
         self.services = services
+        self.ipc_mode = "shareable"
 
         self.setup_instructions = [
             "ip route del default",
             f"ip route add default via {str(self.network.router_gateway)}"
         ]
+
+    def _create_host_config(self):
+        return self.client.api.create_host_config(cap_add=self.cap_add, ipc_mode=self.ipc_mode)
 
     def configure(self):
         container = self.get()
@@ -77,7 +87,7 @@ class Node(BaseNode):
 
     def create_services(self):
         for service in self.services:
-            service.create()
+            service.create(self.id)
 
     def delete(self):
         self.delete_services()

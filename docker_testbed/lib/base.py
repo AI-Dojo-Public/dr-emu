@@ -1,6 +1,6 @@
 from docker import DockerClient
 
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 
 
 class Base:
@@ -13,9 +13,17 @@ class Base:
         pass
 
     @abstractmethod
+    def delete(self):
+        pass
+
+
+class BaseGeneral(Base, ABC):
+    @abstractmethod
     def create(self):
         pass
 
+
+class BaseService(Base, ABC):
     @abstractmethod
-    def delete(self):
+    def create(self, parent_node_id: str):
         pass

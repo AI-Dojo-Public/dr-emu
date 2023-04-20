@@ -50,19 +50,18 @@ class CYSTParser:
 
     def parse_nodes(self):
         for cyst_node in cyst_nodes:
-            services = self.parse_services(cyst_node.id, cyst_node.active_services + cyst_node.passive_services)
+            services = self.parse_services(cyst_node.active_services + cyst_node.passive_services)
             interface = cyst_node.interfaces[0]
 
             node = Node(self.client, cyst_node.id, interface.ip, self.find_network(interface.net), services)
             self.nodes.append(node)
 
-    def parse_services(self, parent_node: str, node_services: list):
+    def parse_services(self, node_services: list):
         services = []
 
         for cyst_service in node_services:
             configuration = self.get_service_configuration(cyst_service.id)
-            service = Service(self.client, cyst_service.id, parent_node, configuration["image"],
-                              **configuration["kwargs"])
+            service = Service(self.client, cyst_service.id, configuration["image"], **configuration["kwargs"])
             services.append(service)
 
         return services
