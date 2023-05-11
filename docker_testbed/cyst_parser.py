@@ -32,14 +32,15 @@ class CYSTParser:
         This method will parse given details (will need more than just a name) and return Docker image with kwargs
         """
         # TODO
-        return {
-            "image": constants.IMAGE_BASE,
-            "kwargs": {"tty": True}
-        }
+        return {"image": constants.IMAGE_BASE, "kwargs": {"tty": True}}
 
     def parse_networks(self):
         self.networks.append(
-            Network(self.client, constants.MANAGEMENT_NETWORK_SUBNET, constants.MANAGEMENT_NETWORK_ROUTER_GATEWAY)
+            Network(
+                self.client,
+                constants.MANAGEMENT_NETWORK_SUBNET,
+                constants.MANAGEMENT_NETWORK_ROUTER_GATEWAY,
+            )
         )
 
         for cyst_router in cyst_routers:
@@ -50,10 +51,18 @@ class CYSTParser:
 
     def parse_nodes(self):
         for cyst_node in cyst_nodes:
-            services = self.parse_services(cyst_node.active_services + cyst_node.passive_services)
+            services = self.parse_services(
+                cyst_node.active_services + cyst_node.passive_services
+            )
             interface = cyst_node.interfaces[0]
 
-            node = Node(self.client, cyst_node.id, interface.ip, self.find_network(interface.net), services)
+            node = Node(
+                self.client,
+                cyst_node.id,
+                interface.ip,
+                self.find_network(interface.net),
+                services,
+            )
             self.nodes.append(node)
 
     def parse_services(self, node_services: list):
@@ -61,7 +70,12 @@ class CYSTParser:
 
         for cyst_service in node_services:
             configuration = self.get_service_configuration(cyst_service.id)
-            service = Service(self.client, cyst_service.id, configuration["image"], **configuration["kwargs"])
+            service = Service(
+                self.client,
+                cyst_service.id,
+                configuration["image"],
+                **configuration["kwargs"],
+            )
             services.append(service)
 
         return services
@@ -69,13 +83,21 @@ class CYSTParser:
     def parse_routers(self):
         management_network = self.networks[0]
 
-        for cyst_router, ip_address in zip(cyst_routers, management_network.subnet.iter_hosts()):
+        for cyst_router, ip_address in zip(
+            cyst_routers, management_network.subnet.iter_hosts()
+        ):
             router_networks = []
 
             for interface in cyst_router.interfaces:
                 router_networks.append(self.find_network(interface.net))
 
-            router = Router(self.client, cyst_router.id, ip_address, management_network, router_networks)
+            router = Router(
+                self.client,
+                cyst_router.id,
+                ip_address,
+                management_network,
+                router_networks,
+            )
             self.routers.append(router)
 
     def parse(self):

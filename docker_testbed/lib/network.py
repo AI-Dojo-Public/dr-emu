@@ -1,3 +1,4 @@
+import asyncio
 import randomname
 from netaddr import IPAddress, IPNetwork
 
@@ -9,13 +10,18 @@ from docker_testbed.lib import base
 
 
 class Network(base.BaseGeneral):
-    def __init__(self, client: DockerClient, subnet: IPNetwork, router_gateway: IPAddress,
-                 bridge_gateway: IPAddress = None):
+    def __init__(
+        self,
+        client: DockerClient,
+        subnet: IPNetwork,
+        router_gateway: IPAddress,
+        bridge_gateway: IPAddress = None,
+    ):
         super().__init__(client)
         self.client = client
         self.subnet = subnet
         self.ip = subnet.ip
-        self.name = randomname.get_name(adj='colors', noun='astronomy', sep="_")
+        self.name = randomname.get_name(adj="colors", noun="astronomy", sep="_")
         self.router_gateway = router_gateway
 
         self.driver = "bridge"
@@ -26,16 +32,22 @@ class Network(base.BaseGeneral):
         else:
             self.bridge_gateway = bridge_gateway
 
-    def get(self) -> DockerNetwork:
-        return self.client.networks.get(self.id)
+    async def get(self) -> DockerNetwork:
+        return await asyncio.to_thread(self.client.networks.get, self.id)
 
-    def create(self):
+    async def create(self):
         ipam_pool = IPAMPool(subnet=str(self.subnet), gateway=str(self.bridge_gateway))
         ipam_config = IPAMConfig(pool_configs=[ipam_pool])
 
-        self.id = self.client.networks.create(
-            self.name, driver=self.driver, ipam=ipam_config, attachable=self.attachable
+        self.id = (
+            await asyncio.to_thread(
+                self.client.networks.create,
+                self.name,
+                driver=self.driver,
+                ipam=ipam_config,
+                attachable=self.attachable,
+            )
         ).id
 
-    def delete(self):
-        self.get().remove()
+    async def delete(self):
+        await asyncio.to_thread((await self.get()).remove)

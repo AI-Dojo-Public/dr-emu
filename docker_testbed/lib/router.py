@@ -1,5 +1,5 @@
+import asyncio
 from netaddr import IPAddress
-
 from docker import DockerClient
 
 from docker_testbed.lib.network import Network
@@ -8,32 +8,51 @@ from docker_testbed.util import constants
 
 
 class Router(BaseNode):
-    def __init__(self, client: DockerClient, name: str, ip: IPAddress, network: Network,
-                 attached_networks: list[Network], image: str = constants.IMAGE_ROUTER,
-                 tty: bool = True, detach: bool = True, cap_add: list = None):
+    def __init__(
+        self,
+        client: DockerClient,
+        name: str,
+        ip: IPAddress,
+        network: Network,
+        attached_networks: list[Network],
+        image: str = constants.IMAGE_ROUTER,
+        tty: bool = True,
+        detach: bool = True,
+        cap_add: list = None,
+    ):
         super().__init__(client, name, ip, network, image, tty, detach, cap_add)
         self.attached_networks = attached_networks
+        self.setup_instructions = [
+            "ip route del default",
+            f"ip route add default via {str(self.network.router_gateway)}",
+        ]
 
-    def configure(self):
-        container = self.get()
+    async def configure(self):
+        container = await self.get()
 
         if self.name == constants.PERIMETER_ROUTER:
             default_gateway = self.network.bridge_gateway
         else:
             default_gateway = self.network.router_gateway
 
-        container.exec_run("ip route del default")
-        container.exec_run(f"ip route add default via {default_gateway}")
+        config_instructions = [
+            "ip route del default",
+            f"ip route add default via {default_gateway}",
+            "iptables -t nat -A POSTROUTING -j MASQUERADE",
+            "iptables-save",
+        ]
 
-        container.exec_run("iptables -t nat -A POSTROUTING -j MASQUERADE")
-        container.exec_run("iptables-save")
+        for instruction in config_instructions:
+            await asyncio.to_thread(container.exec_run, instruction)
 
-    def connect_to_networks(self):
+    async def connect_to_networks(self):
         for network in self.attached_networks:
-            network.get().connect(self.name, ipv4_address=str(network.router_gateway))
+            (await network.get()).connect(
+                self.name, ipv4_address=str(network.router_gateway)
+            )
 
-    def start(self):
-        self.create()
-        self.get().start()
-        self.connect_to_networks()
-        self.configure()
+    async def start(self):
+        await self.create()
+        (await self.get()).start()
+        await self.connect_to_networks()
+        await self.configure()
