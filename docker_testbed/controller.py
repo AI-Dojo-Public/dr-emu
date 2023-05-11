@@ -1,47 +1,60 @@
+import asyncio
+
 from docker_testbed.lib.network import Network
 from docker_testbed.lib.node import Node
 from docker_testbed.lib.router import Router
 
 
 class Controller:
-    def __init__(self, networks: list[Network], routers: list[Router], nodes: list[Node]):
+    def __init__(
+        self, networks: list[Network], routers: list[Router], nodes: list[Node]
+    ):
         self.networks = networks
         self.routers = routers
         self.nodes = nodes
 
-    def start(self):
-        self.create_networks()
-        self.start_routers()
-        self.start_nodes()
+    async def start(self):
+        create_network_tasks = await self.create_networks()
+        await asyncio.gather(*create_network_tasks)
 
-    def create_networks(self):
-        for network in self.networks:
-            network.create()
+        start_node_tasks = (await self.start_routers()).union(await self.start_nodes())
+        await asyncio.gather(*start_node_tasks)
 
-    def start_routers(self):
-        for router in self.routers:
-            router.start()
+    async def create_networks(self) -> set[asyncio.Task]:
+        return {asyncio.create_task(network.create()) for network in self.networks}
 
-    def start_nodes(self):
-        for node in self.nodes:
-            node.start()
+    async def start_routers(self) -> set[asyncio.Task]:
+        return {asyncio.create_task(router.start()) for router in self.routers}
 
-    def stop(self, check_id: bool = False):
-        self.delete_nodes(check_id)
-        self.delete_routers(check_id)
-        self.delete_networks(check_id)
+    async def start_nodes(self) -> set[asyncio.Task]:
+        return {asyncio.create_task(node.start()) for node in self.nodes}
 
-    def delete_networks(self, check_id: bool):
+    async def stop(self, check_id: bool = False):
+        stop_container_tasks = (await self.delete_nodes(check_id)).union(
+            await self.delete_routers(check_id)
+        )
+        await asyncio.gather(*stop_container_tasks)
+
+        delete_network_tasks = await self.delete_networks(check_id)
+        await asyncio.gather(*delete_network_tasks)
+
+    async def delete_networks(self, check_id: bool) -> set[asyncio.Task]:
+        network_tasks = set()
         for network in self.networks:
             if not check_id or (check_id and network.id != ""):
-                network.delete()
+                network_tasks.add(asyncio.create_task(network.delete()))
+        return network_tasks
 
-    def delete_routers(self, check_id: bool):
+    async def delete_routers(self, check_id: bool) -> set[asyncio.Task]:
+        router_tasks = set()
         for router in self.routers:
             if not check_id or (check_id and router.id != ""):
-                router.delete()
+                router_tasks.add(asyncio.create_task(router.delete()))
+        return router_tasks
 
-    def delete_nodes(self, check_id: bool):
+    async def delete_nodes(self, check_id: bool) -> set[asyncio.Task]:
+        node_tasks = set()
         for node in self.nodes:
             if not check_id or (check_id and node.id != ""):
-                node.delete()
+                node_tasks.add(asyncio.create_task(node.delete()))
+        return node_tasks
