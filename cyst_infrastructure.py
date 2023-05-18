@@ -66,6 +66,7 @@ wordpress_srv = NodeConfig(
             version="6.1.1",
             local=False,
             access_level=AccessLevel.LIMITED,
+            id="wordpress_app",
             authentication_providers=[local_password_auth("wordpress_app_pwd")],
             access_schemes=[
                 AccessSchemeConfig(
@@ -85,7 +86,27 @@ wordpress_srv = NodeConfig(
         InterfaceConfig(IPAddress("192.168.93.11"), IPNetwork("192.168.93.0/24"))
     ],
     shell="",
-    id="wordpress_node"
+    id="wordpress_app_node"
+)
+
+wordpress_db = NodeConfig(
+    active_services=[],
+    passive_services=[
+        PassiveServiceConfig(
+            type="wordpress_db",
+            owner="mysql",
+            version="8.0.31",
+            local=False,
+            access_level=AccessLevel.LIMITED,
+            id="wordpress_db",
+        )
+    ],
+    traffic_processors=[],
+    interfaces=[
+        InterfaceConfig(IPAddress("192.168.93.10"), IPNetwork("192.168.93.0/24"))
+    ],
+    shell="",
+    id="wordpress_db_node"
 )
 
 # -----------------------------------------------------------------------------
@@ -159,6 +180,7 @@ user_pc = NodeConfig(
     active_services=[],
     passive_services=[
         PassiveServiceConfig(
+            id="ssh_service",
             type="ssh",
             owner="ssh",
             version="5.1.4",

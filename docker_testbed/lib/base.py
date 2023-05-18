@@ -1,6 +1,8 @@
 from docker import DockerClient
 from abc import abstractmethod, ABC
 
+from docker_testbed.util import constants
+
 
 class Base:
     def __init__(self, client: DockerClient):

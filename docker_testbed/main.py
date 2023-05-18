@@ -13,7 +13,7 @@ async def main():
 
     parser.parse()
 
-    controller = Controller(parser.networks, parser.routers, parser.nodes)
+    controller = Controller(docker_client, parser.networks, parser.routers, parser.nodes, parser.images)
 
     try:
         await controller.start()

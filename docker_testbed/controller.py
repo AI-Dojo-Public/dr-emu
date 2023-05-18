@@ -1,5 +1,8 @@
 import asyncio
 
+import docker.errors
+from docker import DockerClient
+
 from docker_testbed.lib.network import Network
 from docker_testbed.lib.node import Node
 from docker_testbed.lib.router import Router
@@ -7,13 +10,39 @@ from docker_testbed.lib.router import Router
 
 class Controller:
     def __init__(
-        self, networks: list[Network], routers: list[Router], nodes: list[Node]
+        self,
+        client: DockerClient,
+        networks: list[Network],
+        routers: list[Router],
+        nodes: list[Node],
+        images: set,
     ):
+        self.client = client
         self.networks = networks
         self.routers = routers
         self.nodes = nodes
+        self.images = images
+
+    async def pull_images(self):
+        pull_image_tasks = set()
+
+        for image in self.images:
+            try:
+                await asyncio.to_thread(self.client.images.get, image)
+            except docker.errors.ImageNotFound:
+                print(f"pulling image: {image}")
+                pull_image_tasks.add(
+                    asyncio.create_task(
+                        asyncio.to_thread(self.client.images.pull, image)
+                    )
+                )
+
+        if pull_image_tasks:
+            await asyncio.gather(*pull_image_tasks)
 
     async def start(self):
+        await self.pull_images()
+
         create_network_tasks = await self.create_networks()
         await asyncio.gather(*create_network_tasks)
 
