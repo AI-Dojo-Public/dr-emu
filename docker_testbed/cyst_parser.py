@@ -18,6 +18,11 @@ class CYSTParser:
         self.networks: list[Network] = []
         self.routers: list[Router] = []
         self.nodes: list[Node] = []
+        self.images: set = set()
+
+    # TODO
+    def parse_images(self):
+        self.images = set(constants.IMAGE_LIST)
 
     def find_network(self, subnet: IPNetwork):
         for network in self.networks:
@@ -56,12 +61,17 @@ class CYSTParser:
             )
             interface = cyst_node.interfaces[0]
 
+            node_image = constants.IMAGE_NODE
+            if (specified_image := constants.TESTBED_IMAGES.get(cyst_node.id)) is not None:
+                node_image = specified_image
+
             node = Node(
                 self.client,
                 cyst_node.id,
                 interface.ip,
                 self.find_network(interface.net),
                 services,
+                image=node_image
             )
             self.nodes.append(node)
 
@@ -69,11 +79,15 @@ class CYSTParser:
         services = []
 
         for cyst_service in node_services:
+            service_image = constants.IMAGE_NODE
+            if (specified_image := constants.TESTBED_IMAGES.get(cyst_service.id)) is not None:
+                service_image = specified_image
+
             configuration = self.get_service_configuration(cyst_service.id)
             service = Service(
                 self.client,
                 cyst_service.id,
-                configuration["image"],
+                service_image,
                 **configuration["kwargs"],
             )
             services.append(service)
@@ -104,3 +118,4 @@ class CYSTParser:
         self.parse_networks()
         self.parse_routers()
         self.parse_nodes()
+        self.parse_images()
