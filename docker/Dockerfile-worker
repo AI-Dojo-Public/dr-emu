@@ -1,4 +1,0 @@
-FROM registry.gitlab.ics.muni.cz:443/cryton/cryton-worker:kali
-
-WORKDIR /app
-RUN git clone https://gitlab.ics.muni.cz/cryton/cryton-modules.git
