@@ -1,5 +1,8 @@
 from netaddr import IPAddress, IPNetwork
 
+
+ROUTER_TYPE_PERIMETER = "perimeter"
+ROUTER_TYPE_INTERNAL = "internal"
 PERIMETER_ROUTER = "perimeter_router"
 MANAGEMENT_NETWORK_SUBNET = IPNetwork("192.168.50.0/24")
 MANAGEMENT_NETWORK_ROUTER_GATEWAY = IPAddress(

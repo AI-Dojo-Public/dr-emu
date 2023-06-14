@@ -5,5 +5,4 @@ from starlette.middleware.gzip import GZipMiddleware
 middleware = [
     Middleware(GZipMiddleware),
     Middleware(CORSMiddleware, allow_origins=["app.example.io"]),
-    # ...
 ]
