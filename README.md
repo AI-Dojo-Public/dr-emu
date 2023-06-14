@@ -20,14 +20,27 @@ poetry install
 ```
 
 ## Build the infrastructure
+Run postgresql container
+```shell
+docker run --rm --name postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres -p 127.0.0.1:5432:5432 postgres:15
+```
+
 Make sure the necessary images exist:
 ```shell
 docker build -t base --target base .
 docker build -t router --target router .
 docker build -t node --target node .
 ```
-
+Run application:
+```shell
+poetry run uvicorn testbed_app.app:app --reload
+```
 To build the infrastructure use:
 ```bash
-poetry run python docker_testbed/main.py
+curl localhost:8000/create-infra
+```
+
+To destroy infrastructure use:
+```bash
+curl localhost:8000/destroy-infra
 ```

@@ -1,0 +1,23 @@
+version: '3.9'
+services:
+  ai_dojo_db:
+    restart: always
+    image: postgres:15
+    container_name: ai-dojo-db
+    env_file:
+      - .env
+    environment:
+      POSTGRES_PASSWORD: aidojo-password
+      POSTGRES_USER: aidojo-user
+      POSTGRES_DB: aidojo
+      POSTGRES_HOST_AUTH_METHOD: md5
+#    volumes:
+#      - ai-dojo-testbed:/var/lib/postgresql/data
+    healthcheck:
+      test: /usr/bin/pg_isready -U $$POSTGRES_USER
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+#volumes:
+#  ai-dojo-testbed:

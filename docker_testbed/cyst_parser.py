@@ -1,13 +1,11 @@
+import randomname
 from docker import DockerClient
 
 from netaddr import IPNetwork
 
 from cyst_infrastructure import nodes as cyst_nodes, routers as cyst_routers
 
-from docker_testbed.lib.network import Network
-from docker_testbed.lib.node import Node
-from docker_testbed.lib.service import Service
-from docker_testbed.lib.router import Router
+from testbed_app.models import Network, Service, Router, Interface, Node
 from docker_testbed.util import constants
 
 
@@ -26,7 +24,7 @@ class CYSTParser:
 
     def find_network(self, subnet: IPNetwork):
         for network in self.networks:
-            if network.subnet == subnet:
+            if network.ipaddress == subnet:
                 return network
 
         raise RuntimeError(f"No network matching {subnet}.")
@@ -37,42 +35,57 @@ class CYSTParser:
         This method will parse given details (will need more than just a name) and return Docker image with kwargs
         """
         # TODO
-        return {"image": constants.IMAGE_BASE, "kwargs": {"tty": True}}
+        return {"image": constants.IMAGE_BASE, "kwargs": {}}
 
     def parse_networks(self):
         self.networks.append(
             Network(
-                self.client,
-                constants.MANAGEMENT_NETWORK_SUBNET,
-                constants.MANAGEMENT_NETWORK_ROUTER_GATEWAY,
+                ipaddress=constants.MANAGEMENT_NETWORK_SUBNET,
+                router_gateway=constants.MANAGEMENT_NETWORK_ROUTER_GATEWAY,
+                name=constants.MANAGEMENT_NETWORK_NAME,
             )
         )
 
         for cyst_router in cyst_routers:
             for interface in cyst_router.interfaces:
-                if not any(interface.net == n.subnet for n in self.networks):
-                    network = Network(self.client, interface.net, interface.ip)
+                if not any(interface.net == n.ipaddress for n in self.networks):
+                    network_name = randomname.get_name(
+                        adj="colors", noun="astronomy", sep="_"
+                    )
+                    network = Network(
+                        ipaddress=interface.net,
+                        router_gateway=interface.ip,
+                        name=network_name,
+                    )
                     self.networks.append(network)
 
     def parse_nodes(self):
         for cyst_node in cyst_nodes:
-            services = self.parse_services(
-                cyst_node.active_services + cyst_node.passive_services
-            )
-            interface = cyst_node.interfaces[0]
+            interfaces = []
+            for interface in cyst_node.interfaces:
+                interfaces.append(
+                    Interface(
+                        ipaddress=interface.ip, network=self.find_network(interface.net)
+                    )
+                )
 
             node_image = constants.IMAGE_NODE
-            if (specified_image := constants.TESTBED_IMAGES.get(cyst_node.id)) is not None:
+            if (
+                specified_image := constants.TESTBED_IMAGES.get(cyst_node.id)
+            ) is not None:
                 node_image = specified_image
 
             node = Node(
-                self.client,
-                cyst_node.id,
-                interface.ip,
-                self.find_network(interface.net),
-                services,
-                image=node_image
+                name=cyst_node.id,
+                interfaces=interfaces,
+                image=node_image,
             )
+
+            services = self.parse_services(
+                cyst_node.active_services + cyst_node.passive_services
+            )
+
+            node.services = services
             self.nodes.append(node)
 
     def parse_services(self, node_services: list):
@@ -80,14 +93,15 @@ class CYSTParser:
 
         for cyst_service in node_services:
             service_image = constants.IMAGE_NODE
-            if (specified_image := constants.TESTBED_IMAGES.get(cyst_service.id)) is not None:
+            if (
+                specified_image := constants.TESTBED_IMAGES.get(cyst_service.id)
+            ) is not None:
                 service_image = specified_image
 
             configuration = self.get_service_configuration(cyst_service.id)
             service = Service(
-                self.client,
-                cyst_service.id,
-                service_image,
+                name=cyst_service.id,
+                image=service_image,
                 **configuration["kwargs"],
             )
             services.append(service)
@@ -95,22 +109,24 @@ class CYSTParser:
         return services
 
     def parse_routers(self):
-        management_network = self.networks[0]
+        management_network = self.find_network(constants.MANAGEMENT_NETWORK_SUBNET)
 
         for cyst_router, ip_address in zip(
-            cyst_routers, management_network.subnet.iter_hosts()
+            cyst_routers, management_network.ipaddress.iter_hosts()
         ):
-            router_networks = []
+            interfaces = [Interface(ipaddress=ip_address, network=management_network)]
 
             for interface in cyst_router.interfaces:
-                router_networks.append(self.find_network(interface.net))
+                network = self.find_network(interface.net)
+                interfaces.append(
+                    Interface(ipaddress=network.router_gateway, network=network)
+                )
+            router_type = (
+                "perimeter" if cyst_router.id == "perimeter_router" else "internal"
+            )
 
             router = Router(
-                self.client,
-                cyst_router.id,
-                ip_address,
-                management_network,
-                router_networks,
+                name=cyst_router.id, router_type=router_type, interfaces=interfaces
             )
             self.routers.append(router)
 

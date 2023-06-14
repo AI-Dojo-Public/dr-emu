@@ -1,11 +1,4 @@
-# from testbed_app.resources import database
+from testbed_app.database import create_db, destroy_db
 
-# on_startup = [
-#     # ...
-#     database.connect,
-# ]
-#
-# on_shutdown = [
-#     # ...
-#     database.disconnect,
-# ]
+on_startup = [create_db]
+on_shutdown = [destroy_db]

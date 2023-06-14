@@ -1,11 +1,8 @@
 import docker
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
-from databases import Database
 
 from testbed_app import settings
-
-# database = Database(settings.DATABASE_URL)
 
 docker_client = docker.from_env()
 
