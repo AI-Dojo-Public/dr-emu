@@ -22,7 +22,7 @@ poetry install
 ## Build the infrastructure
 Run postgresql container
 ```shell
-docker run --rm --name postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres -p 127.0.0.1:5432:5432 postgres:15
+docker run --rm --name aidojo-db -e POSTGRES_USER=aidojo-user -e POSTGRES_PASSWORD=aidojo-password -e POSTGRES_DB=aidojodb -p 127.0.0.1:5432:5432 postgres:15
 ```
 
 Make sure the necessary images exist:
@@ -31,10 +31,13 @@ docker build -t base --target base .
 docker build -t router --target router .
 docker build -t node --target node .
 ```
-Run application:
+Run deployment:
 ```shell
-poetry run uvicorn testbed_app.app:app --reload
+docker compose up -d
 ```
+
+**IMPORTANT: Web application uses docker on host via mounted docker socket.**
+
 To build the infrastructure use:
 ```bash
 curl localhost:8000/create-infra

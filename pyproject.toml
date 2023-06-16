@@ -10,12 +10,12 @@ python = ">=3.9,<3.12"
 docker = "^6.1.2"
 netaddr = "^0.8.0"
 randomname = "^0.2.1"
-cyst-core = { git = "git@gitlab.ics.muni.cz:cyst/cyst-core.git" }
+cyst-core = { path = "./cyst-core" }
 black = {extras = ["d"], version = "^23.3.0"}
-starlette = "^0.27.0"
+starlette = "^0.28.0"
 uvicorn = "^0.22.0"
 asyncpg = "^0.27.0"
-sqlalchemy = {extras = ["asyncio"], version = "^2.0.15"}
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.16"}
 sqlalchemy-utils = "^0.41.1"
 pyyaml = "^6.0"
 

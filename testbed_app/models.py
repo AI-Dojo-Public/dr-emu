@@ -186,6 +186,7 @@ class Appliance(DockerContainerMixin, Base):
             self.client.api.create_host_config, cap_add=self.cap_add
         )
 
+    # TODO: add exception handling for missing docker image
     async def create(self):
         network_config = await self._create_network_config()
         host_config = await self._create_host_config()
