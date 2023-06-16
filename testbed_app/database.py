@@ -12,7 +12,7 @@ BASE_DIR = Path(__file__).parent.parent.parent
 
 DB_USER = getenv("POSTGRES_USER", "postgres")
 DB_PASS = getenv("POSTGRES_PASSWORD", "postgres")
-DB_HOST = getenv("POSTGRES_HOST", "localhost")
+DB_HOST = getenv("DB_HOST", "localhost")
 DB_NAME = getenv("POSTGRES_DB", "postgres")
 
 async_engine = create_async_engine(
