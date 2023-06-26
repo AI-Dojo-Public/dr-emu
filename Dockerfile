@@ -26,7 +26,7 @@ ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /app
 
 # install python dependencies
-RUN poetry install --no-interaction --no-ansi -v
+RUN poetry install --no-interaction --no-ansi -vvv
 
 # run application
 ENTRYPOINT ["poetry", "run", "uvicorn", "testbed_app.app:app", "--reload", "--host", "0.0.0.0"]

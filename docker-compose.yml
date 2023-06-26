@@ -9,7 +9,7 @@ services:
     volumes:
       - ai-dojo-testbed:/var/lib/postgresql/data
     healthcheck:
-      test: /usr/bin/pg_isready -U $$POSTGRES_USER
+      test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
       interval: 20s
       timeout: 10s
       retries: 5
@@ -29,7 +29,6 @@ services:
     env_file:
       - .env
     volumes:
-      - .:/app
       - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
