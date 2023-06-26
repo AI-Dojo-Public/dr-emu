@@ -12,23 +12,14 @@ git clone git@gitlab.ics.muni.cz:ai-dojo/docker-testbed.git
 cd docker-testbed
 ```
 
+**Notice: To be able to proceed with the installation, make sure you have set up [ssh keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent) and have access to the [CYST Core](https://gitlab.ics.muni.cz/cyst/cyst-core) repository.**
+
 Clone cyst core:
 ```shell
 git clone git@gitlab.ics.muni.cz:cyst/cyst-core.git
 ```
 
-**Notice: To be able to proceed with the installation, make sure you have set up [ssh keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent) and have access to the [CYST Core](https://gitlab.ics.muni.cz/cyst/cyst-core) repository.**
-
-Install the application:
-```shell
-poetry install
-```
-
 ## Build the infrastructure
-Run postgresql container
-```shell
-docker run --rm --name aidojo-db -e POSTGRES_USER=aidojo-user -e POSTGRES_PASSWORD=aidojo-password -e POSTGRES_DB=aidojodb -p 127.0.0.1:5432:5432 postgres:15
-```
 
 Make sure the necessary images exist:
 ```shell
