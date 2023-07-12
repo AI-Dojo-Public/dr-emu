@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from sqlalchemy import AsyncAdaptedQueuePool
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from os import getenv
 from pathlib import Path
@@ -16,7 +18,12 @@ DB_HOST = getenv("DB_HOST", "localhost")
 DB_NAME = getenv("POSTGRES_DB", "postgres")
 
 async_engine = create_async_engine(
-    f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
+    url=f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}",
+    future=True,
+    poolclass=AsyncAdaptedQueuePool,
+    pool_size=5,
+    max_overflow=2,
+    echo=False,
 )
 
 session_factory = async_sessionmaker(async_engine, expire_on_commit=False)

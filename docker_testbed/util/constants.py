@@ -1,14 +1,14 @@
 from netaddr import IPAddress, IPNetwork
 
 
+APPLIANCE_TYPE_ROUTER = "router"
+APPLIANCE_TYPE_NODE = "node"
 ROUTER_TYPE_PERIMETER = "perimeter"
 ROUTER_TYPE_INTERNAL = "internal"
 PERIMETER_ROUTER = "perimeter_router"
-MANAGEMENT_NETWORK_SUBNET = IPNetwork("192.168.50.0/24")
-MANAGEMENT_NETWORK_ROUTER_GATEWAY = IPAddress(
-    MANAGEMENT_NETWORK_SUBNET.first + 1, MANAGEMENT_NETWORK_SUBNET.version
-)
-MANAGEMENT_NETWORK_NAME = "management_network"
+
+NETWORK_TYPE_INTERNAL = "internal"
+NETWORK_TYPE_MANAGEMENT = "management"
 
 IMAGE_DEBUG = "nicolaka/netshoot"
 IMAGE_BASE = "alpine"

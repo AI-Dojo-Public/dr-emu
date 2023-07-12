@@ -34,12 +34,12 @@ docker compose up -d
 
 **IMPORTANT: Web application uses docker on host via mounted docker socket.**
 
-To build the infrastructure use:
+To build the infrastructures use the following command with `infrastructures=<number-of-infrastructures>` parameter
 ```bash
-curl localhost:8000/create-infra
+curl localhost:8000/create-infra?infrastructures=2
 ```
 
-To destroy infrastructure use:
+To destroy infrastructures use following command with `id=<id-of-infrastructure>` parameter:
 ```bash
-curl localhost:8000/destroy-infra
+curl localhost:8000/destroy-infra?id=1&id=2
 ```
