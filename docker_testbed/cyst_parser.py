@@ -3,7 +3,7 @@ from docker import DockerClient
 
 from netaddr import IPNetwork
 
-from cyst_infrastructure import nodes as cyst_nodes, routers as cyst_routers
+from cyst_infrastructure import RouterConfig, NodeConfig
 
 from testbed_app.models import Network, Service, Router, Interface, Node
 from docker_testbed.util import constants
@@ -37,15 +37,7 @@ class CYSTParser:
         # TODO
         return {"image": constants.IMAGE_BASE, "kwargs": {}}
 
-    def parse_networks(self):
-        self.networks.append(
-            Network(
-                ipaddress=constants.MANAGEMENT_NETWORK_SUBNET,
-                router_gateway=constants.MANAGEMENT_NETWORK_ROUTER_GATEWAY,
-                name=constants.MANAGEMENT_NETWORK_NAME,
-            )
-        )
-
+    def parse_networks(self, cyst_routers):
         for cyst_router in cyst_routers:
             for interface in cyst_router.interfaces:
                 if not any(interface.net == n.ipaddress for n in self.networks):
@@ -56,10 +48,11 @@ class CYSTParser:
                         ipaddress=interface.net,
                         router_gateway=interface.ip,
                         name=network_name,
+                        network_type=constants.NETWORK_TYPE_INTERNAL,
                     )
                     self.networks.append(network)
 
-    def parse_nodes(self):
+    def parse_nodes(self, cyst_nodes):
         for cyst_node in cyst_nodes:
             interfaces = []
             for interface in cyst_node.interfaces:
@@ -108,30 +101,30 @@ class CYSTParser:
 
         return services
 
-    def parse_routers(self):
-        management_network = self.find_network(constants.MANAGEMENT_NETWORK_SUBNET)
-
-        for cyst_router, ip_address in zip(
-            cyst_routers, management_network.ipaddress.iter_hosts()
-        ):
-            interfaces = [Interface(ipaddress=ip_address, network=management_network)]
+    def parse_routers(self, cyst_routers):
+        for cyst_router in cyst_routers:
+            interfaces = []
 
             for interface in cyst_router.interfaces:
                 network = self.find_network(interface.net)
                 interfaces.append(
                     Interface(ipaddress=network.router_gateway, network=network)
                 )
+
             router_type = (
                 "perimeter" if cyst_router.id == "perimeter_router" else "internal"
             )
 
             router = Router(
-                name=cyst_router.id, router_type=router_type, interfaces=interfaces
+                name=cyst_router.id,
+                router_type=router_type,
+                interfaces=interfaces,
+                image=constants.IMAGE_ROUTER,
             )
             self.routers.append(router)
 
-    def parse(self):
-        self.parse_networks()
-        self.parse_routers()
-        self.parse_nodes()
+    def parse(self, cyst_routers: list[RouterConfig], cyst_nodes: list[NodeConfig]):
+        self.parse_networks(cyst_routers)
+        self.parse_routers(cyst_routers)
+        self.parse_nodes(cyst_nodes)
         self.parse_images()

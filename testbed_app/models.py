@@ -35,7 +35,7 @@ class DockerMixin:
     __abstract__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    docker_id: Mapped[str] = mapped_column(nullable=True)
+    docker_id: Mapped[str] = mapped_column()
     name: Mapped[str] = mapped_column()
     client: DockerClient = docker_client
     kwargs: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -83,6 +83,9 @@ class Network(DockerMixin, Base):
     )
     _ipaddress = mapped_column("ipaddress", String)
     _router_gateway = mapped_column("router_gateway", String)
+    infrastructure_id: Mapped[int] = mapped_column(ForeignKey("infrastructure.id"))
+    infrastructure: Mapped["Infrastructure"] = relationship(back_populates="networks")
+    network_type: Mapped[str] = mapped_column()
 
     @property
     def ipaddress(self):
@@ -154,6 +157,8 @@ class Appliance(DockerContainerMixin, Base):
         back_populates="appliance", cascade="all, delete-orphan"
     )
     type: Mapped[str]
+    infrastructure_id: Mapped[int] = mapped_column(ForeignKey("infrastructure.id"))
+    infrastructure: Mapped["Infrastructure"] = relationship(back_populates="appliances")
 
     __mapper_args__ = {
         "polymorphic_on": "type",
@@ -215,6 +220,18 @@ class Appliance(DockerContainerMixin, Base):
         await asyncio.to_thread(container.remove, v=True, force=True)
 
 
+class Infrastructure(Base):
+    __tablename__ = "infrastructure"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    networks: Mapped[list["Network"]] = relationship(
+        back_populates="infrastructure", cascade="all, delete-orphan"
+    )
+    appliances: Mapped[list["Appliance"]] = relationship(
+        back_populates="infrastructure", cascade="all, delete-orphan"
+    )
+
+
 class Router(Appliance):
     __tablename__ = "router"
 
@@ -227,24 +244,53 @@ class Router(Appliance):
 
     # TODO: refactor taking gateway from connections in cyst_infrastructure
     async def configure(self):
-        container = await self.get()
-
-        default_gateway = self.interfaces[0].network.bridge_gateway
+        perimeter_config_instructions = []
 
         for interface in self.interfaces:
-            if interface.network.name == constants.MANAGEMENT_NETWORK_NAME:
+            if interface.network.network_type == constants.NETWORK_TYPE_MANAGEMENT:
+                management_network = interface.network
+                # TODO: find a better way to configure perimeter router
+                # find all internal networks and add routes to them from perimeter router
+                for management_interface in management_network.interfaces:
+                    if (
+                        management_interface.appliance.router_type
+                        == constants.ROUTER_TYPE_INTERNAL
+                    ):
+                        for router_interface in management_interface.appliance.interfaces:
+                            if (
+                                router_interface.network.network_type
+                                == constants.NETWORK_TYPE_INTERNAL
+                            ):
+                                perimeter_config_instructions.append(
+                                    f"ip route add {router_interface.network.ipaddress } via "
+                                    f"{management_interface.ipaddress}"
+                                )
+
                 if self.router_type == constants.ROUTER_TYPE_PERIMETER:
                     default_gateway = interface.network.bridge_gateway
+                else:
+                    default_gateway = interface.network.router_gateway
 
-        config_instructions = [
+        perimeter_config_instructions += [
             "ip route del default",
             f"ip route add default via {default_gateway}",
             "iptables -t nat -A POSTROUTING -j MASQUERADE",
             "iptables-save",
         ]
 
-        for instruction in config_instructions:
-            await asyncio.to_thread(container.exec_run, instruction)
+        internal_config_instructions = [
+            "ip route del default",
+            f"ip route add default via {default_gateway}",
+        ]
+
+        container = await self.get()
+
+        if self.router_type == constants.ROUTER_TYPE_PERIMETER:
+            for instruction in perimeter_config_instructions:
+                await asyncio.to_thread(container.exec_run, instruction)
+        else:
+            for instruction in internal_config_instructions:
+                await asyncio.to_thread(container.exec_run, instruction)
 
     async def connect_to_networks(self):
         for interface in self.interfaces[1:]:
@@ -256,7 +302,6 @@ class Router(Appliance):
         await self.create()
         (await self.get()).start()
         await self.connect_to_networks()
-        await self.configure()
 
 
 class Node(Appliance):
@@ -293,8 +338,6 @@ class Node(Appliance):
     async def start(self):
         await self.create()
         await asyncio.to_thread((await self.get()).start)
-
-        await self.configure()
 
         create_service_tasks = await self.create_services()
         await asyncio.gather(*create_service_tasks)
