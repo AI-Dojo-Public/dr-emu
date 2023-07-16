@@ -20,9 +20,18 @@ class CYSTParser:
 
     # TODO
     def parse_images(self):
+        """
+        Get images to build for infrastructure.
+        :return:
+        """
         self.images = set(constants.IMAGE_LIST)
 
-    def find_network(self, subnet: IPNetwork):
+    def find_network(self, subnet: IPNetwork) -> Network:
+        """
+        Find network object matching the subnet ip address.
+        :param subnet: network ip address
+        :return: Network object
+        """
         for network in self.networks:
             if network.ipaddress == subnet:
                 return network
@@ -38,6 +47,11 @@ class CYSTParser:
         return {"image": constants.IMAGE_BASE, "kwargs": {}}
 
     def parse_networks(self, cyst_routers):
+        """
+        Create network models from cyst infrastructure prescription.
+        :param cyst_routers: router objects from cyst infrastructure
+        :return:
+        """
         for cyst_router in cyst_routers:
             for interface in cyst_router.interfaces:
                 if not any(interface.net == n.ipaddress for n in self.networks):
@@ -53,6 +67,11 @@ class CYSTParser:
                     self.networks.append(network)
 
     def parse_nodes(self, cyst_nodes):
+        """
+        Create node models from cyst infrastructure prescription.
+        :param cyst_nodes: node objects from cyst infrastructure
+        :return:
+        """
         for cyst_node in cyst_nodes:
             interfaces = []
             for interface in cyst_node.interfaces:
@@ -82,6 +101,11 @@ class CYSTParser:
             self.nodes.append(node)
 
     def parse_services(self, node_services: list):
+        """
+        Create service models from nodes in cyst infrastructure prescription.
+        :param node_services: node objects from cyst infrastructure
+        :return:
+        """
         services = []
 
         for cyst_service in node_services:
@@ -102,6 +126,11 @@ class CYSTParser:
         return services
 
     def parse_routers(self, cyst_routers):
+        """
+        Create router models from nodes in cyst infrastructure prescription.
+        :param cyst_routers: router objects from cyst infrastructure
+        :return:
+        """
         for cyst_router in cyst_routers:
             interfaces = []
 
@@ -124,6 +153,12 @@ class CYSTParser:
             self.routers.append(router)
 
     def parse(self, cyst_routers: list[RouterConfig], cyst_nodes: list[NodeConfig]):
+        """
+        Create all necessary models for infrastructure based on parsed objects from cyst prescription.
+        :param cyst_routers: router objects from cyst infrastructure
+        :param cyst_nodes: node objects from cyst infrastructure
+        :return:
+        """
         self.parse_networks(cyst_routers)
         self.parse_routers(cyst_routers)
         self.parse_nodes(cyst_nodes)

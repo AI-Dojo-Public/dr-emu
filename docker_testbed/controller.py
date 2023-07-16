@@ -15,6 +15,9 @@ from testbed_app.database import session_factory
 
 
 class Controller:
+    """
+    Class for handling actions regarding creating and destroying the infrastructure in docker.
+    """
     def __init__(
         self,
         client: DockerClient,
@@ -32,6 +35,10 @@ class Controller:
         self.infrastructures = infrastructures
 
     async def pull_images(self):
+        """
+        Pull docker images that will be used in the infrastructure.
+        :return:
+        """
         pull_image_tasks = set()
 
         for image in self.images:
@@ -49,6 +56,10 @@ class Controller:
             await asyncio.gather(*pull_image_tasks)
 
     async def start(self):
+        """
+        Executes all necessary functions for building an infrastructure and saves created models to the database.
+        :return:
+        """
         print("starting infrastructure")
         await self.pull_images()
         infrastructure = Infrastructure(
@@ -73,15 +84,31 @@ class Controller:
             await session.commit()
 
     async def create_networks(self) -> set[asyncio.Task]:
+        """
+        Creates async tasks for creating networks.
+        :return: set of tasks for network creation
+        """
         return {asyncio.create_task(network.create()) for network in self.networks}
 
     async def start_routers(self) -> set[asyncio.Task]:
+        """
+        Creates async tasks for creating and starting routers.
+        :return: set of tasks to start router containers
+        """
         return {asyncio.create_task(router.start()) for router in self.routers}
 
     async def start_nodes(self) -> set[asyncio.Task]:
+        """
+        Creates async tasks for creating and starting nodes.
+        :return: set of tasks to start node containers
+        """
         return {asyncio.create_task(node.start()) for node in self.nodes}
 
     async def configure_appliances(self):
+        """
+        Create async tasks for configuring iptables and ip routes in Nodes and Routers.
+        :return:
+        """
         node_configure_tasks = {
             asyncio.create_task(node.configure()) for node in self.nodes
         }
@@ -91,6 +118,11 @@ class Controller:
         return node_configure_tasks.union(router_configure_tasks)
 
     async def stop(self, check_id: bool = False):
+        """
+        Stops and deletes all containers and networks in the infrastructure.
+        :param check_id:
+        :return:
+        """
         print("stopping infrastructure")
         stop_container_tasks = (await self.delete_nodes(check_id)).union(
             await self.delete_routers(check_id)
@@ -101,6 +133,11 @@ class Controller:
         await asyncio.gather(*delete_network_tasks)
 
     async def delete_networks(self, check_id: bool) -> set[asyncio.Task]:
+        """
+        Creates async tasks for deletion of networks.
+        :param check_id:
+        :return: set of tasks for networks deletion
+        """
         network_tasks = set()
         for network in self.networks:
             if not check_id or (check_id and network.docker_id != ""):
@@ -108,6 +145,11 @@ class Controller:
         return network_tasks
 
     async def delete_routers(self, check_id: bool) -> set[asyncio.Task]:
+        """
+        Creates async tasks for deletion of routers.
+        :param check_id:
+        :return: set of tasks for deletion of routers
+        """
         router_tasks = set()
         for router in self.routers:
             if not check_id or (check_id and router.docker_id != ""):
@@ -115,6 +157,11 @@ class Controller:
         return router_tasks
 
     async def delete_nodes(self, check_id: bool) -> set[asyncio.Task]:
+        """
+        Creates async tasks for deletion of nodes.
+        :param check_id:
+        :return: set of tasks for deletion of nodes
+        """
         node_tasks = set()
         for node in self.nodes:
             if not check_id or (check_id and node.docker_id != ""):
@@ -122,6 +169,10 @@ class Controller:
         return node_tasks
 
     async def delete_infrastructures(self):
+        """
+        Delete infrastructure and all models belonging to it (cascade deletion) from db.
+        :return:
+        """
         async with session_factory() as session:
             infra_delete_tasks = set()
 
@@ -134,6 +185,11 @@ class Controller:
             await session.commit()
 
     async def change_ipadresses(self, available_networks: list[IPNetwork]):
+        """
+        Change ip addresses in models.
+        :param available_networks: available ip addresses for networks
+        :return:
+        """
         for network, available_network in zip(self.networks, available_networks):
             network.ipaddress = available_network
 
@@ -149,6 +205,12 @@ class Controller:
                     network.router_gateway = available_ip
 
     async def change_names(self, container_names: set[str], network_names: set[str]):
+        """
+        Change names in models for container name uniqueness.
+        :param container_names: already used docker container names
+        :param network_names: already used network container names
+        :return:
+        """
         containers = [*self.nodes, *self.routers]
         for node in self.nodes:
             containers += node.services
@@ -173,6 +235,12 @@ class Controller:
 
     @staticmethod
     async def get_controller_with_infra_objects(infrastructure_ids: list[int] = None):
+        """
+        Create a controller object with models that match the provided infrastructure ids.
+        (used later for stopping and|or deleting docker objects referring to these models)
+        :param infrastructure_ids: IDs of infrastructures
+        :return: Controller object with models belonging to the provided infrastructures.
+        """
         async with session_factory() as session:
             nodes = (
                 (
@@ -234,9 +302,14 @@ class Controller:
         )
 
     @staticmethod
-    async def prepare_controller_for_infra_creation(
-        docker_client: DockerClient, parser: CYSTParser
-    ):
+    async def prepare_controller_for_infra_creation(docker_client: DockerClient, parser: CYSTParser):
+        """
+        Creates a management network for routers and changes names and ip addresses of models for new infrastructure if
+        needed.
+        :param docker_client: client for docker rest api
+        :param parser: CYSTParser object
+        :return: Controller with prepared object for building a new infrastructure
+        """
         controller = Controller(
             docker_client,
             parser.networks,

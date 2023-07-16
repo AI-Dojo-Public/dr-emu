@@ -32,6 +32,9 @@ class Base(AsyncAttrs, DeclarativeBase):
 
 
 class DockerMixin:
+    """
+    Base class for docker models
+    """
     __abstract__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -42,18 +45,33 @@ class DockerMixin:
 
     @abstractmethod
     async def create(self):
+        """
+        Create docker object
+        :return: None
+        """
         pass
 
     @abstractmethod
     async def get(self):
+        """
+        Get docker object
+        :return: Docker object
+        """
         pass
 
     @abstractmethod
     async def delete(self):
+        """
+        Delete docker object
+        :return: None
+        """
         pass
 
 
 class DockerContainerMixin(DockerMixin):
+    """
+    Base class for docker container models
+    """
     __abstract__ = True
 
     image: Mapped[str] = mapped_column(default=constants.IMAGE_BASE)
@@ -61,18 +79,33 @@ class DockerContainerMixin(DockerMixin):
 
     @abstractmethod
     async def create(self):
+        """
+        Create docker object
+        :return: None
+        """
         pass
 
     @abstractmethod
     async def get(self):
+        """
+        Get docker object
+        :return: Docker object
+        """
         pass
 
     @abstractmethod
     async def delete(self):
+        """
+        Delete docker object
+        :return: None
+        """
         pass
 
 
 class Network(DockerMixin, Base):
+    """
+    Docker network model.
+    """
     __tablename__ = "network"
 
     name: Mapped[str] = mapped_column()
@@ -108,9 +141,17 @@ class Network(DockerMixin, Base):
         return str(IPAddress(self.ipaddress.last - 1, self.ipaddress.version))
 
     async def get(self) -> DockerNetwork:
+        """
+        Get a docker network object.
+        :return: DockerNetwork
+        """
         return await asyncio.to_thread(self.client.networks.get, self.docker_id)
 
     async def create(self):
+        """
+        Create a docker network.
+        :return:
+        """
         ipam_pool = IPAMPool(subnet=self._ipaddress, gateway=self.bridge_gateway)
         ipam_config = IPAMConfig(pool_configs=[ipam_pool])
 
@@ -125,10 +166,17 @@ class Network(DockerMixin, Base):
         ).id
 
     async def delete(self):
+        """
+        Delete docker network object
+        :return:
+        """
         await asyncio.to_thread((await self.get()).remove)
 
 
 class Interface(Base):
+    """
+    Interface model connecting networks and appliances with the addition of an ipaddress.
+    """
     __tablename__ = "interface"
 
     network_id: Mapped[int] = mapped_column(ForeignKey("network.id"), primary_key=True)
@@ -149,6 +197,9 @@ class Interface(Base):
 
 
 class Appliance(DockerContainerMixin, Base):
+    """
+    Docker container model, parent model for Node and Router.
+    """
     __tablename__ = "appliance"
 
     _cap_add = mapped_column("cap_add", String, default="NET_ADMIN")
@@ -174,9 +225,17 @@ class Appliance(DockerContainerMixin, Base):
         self._cap_add = ";".join(str(item) for item in cap_add)
 
     async def get(self) -> Container:
+        """
+        Get a docker container object
+        :return:
+        """
         return await asyncio.to_thread(self.client.containers.get, self.docker_id)
 
     async def _create_network_config(self) -> docker.types.NetworkingConfig:
+        """
+        Create network configuration for docker container.
+        :return: NetworkingConfig object
+        """
         return await asyncio.to_thread(
             self.client.api.create_networking_config,
             {
@@ -187,12 +246,20 @@ class Appliance(DockerContainerMixin, Base):
         )
 
     async def _create_host_config(self) -> docker.types.HostConfig:
+        """
+        Create host configuration for docker container.
+        :return: HostConfig object
+        """
         return await asyncio.to_thread(
             self.client.api.create_host_config, cap_add=self.cap_add
         )
 
     # TODO: add exception handling for missing docker image
     async def create(self):
+        """
+        Create a docker container with necessary configurations.
+        :return:
+        """
         network_config = await self._create_network_config()
         host_config = await self._create_host_config()
 
@@ -216,11 +283,18 @@ class Appliance(DockerContainerMixin, Base):
         pass
 
     async def delete(self):
+        """
+        Delete docker container represented by Appliance model (node or router)
+        :return:
+        """
         container = await self.get()
         await asyncio.to_thread(container.remove, v=True, force=True)
 
 
 class Infrastructure(Base):
+    """
+    Infrastructure model, bundles networks and appliances.
+    """
     __tablename__ = "infrastructure"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -233,6 +307,9 @@ class Infrastructure(Base):
 
 
 class Router(Appliance):
+    """
+    Router model representing docker container responsible for network routing.
+    """
     __tablename__ = "router"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
@@ -244,6 +321,10 @@ class Router(Appliance):
 
     # TODO: refactor taking gateway from connections in cyst_infrastructure
     async def configure(self):
+        """
+        Configure ip routes, iptables on a router based on its type.
+        :return:
+        """
         perimeter_config_instructions = []
 
         for interface in self.interfaces:
@@ -293,18 +374,30 @@ class Router(Appliance):
                 await asyncio.to_thread(container.exec_run, instruction)
 
     async def connect_to_networks(self):
+        """
+        Connect docker container representing a Router to other docker networks, where they will act as a
+        gateway for Nodes.
+        :return:
+        """
         for interface in self.interfaces[1:]:
             (await interface.network.get()).connect(
                 self.name, ipv4_address=str(interface.ipaddress)
             )
 
     async def start(self):
+        """
+        Start a docker container representing a Router.
+        :return:
+        """
         await self.create()
         (await self.get()).start()
         await self.connect_to_networks()
 
 
 class Node(Appliance):
+    """
+    Node model representing docker container acting as a physical machine containing services
+    """
     __tablename__ = "node"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
@@ -318,6 +411,10 @@ class Node(Appliance):
     }
 
     async def _create_host_config(self) -> docker.types.HostConfig:
+        """
+        Create host configuration for docker container.
+        :return:
+        """
         return await asyncio.to_thread(
             self.client.api.create_host_config,
             cap_add=self.cap_add,
@@ -325,6 +422,10 @@ class Node(Appliance):
         )
 
     async def configure(self):
+        """
+        Configure ip tables on a Node.
+        :return:
+        """
         container = await self.get()
 
         setup_instructions = [
@@ -336,6 +437,10 @@ class Node(Appliance):
             await asyncio.to_thread(container.exec_run, cmd=instruction)
 
     async def start(self):
+        """
+        Start a docker container representing a Node.
+        :return:
+        """
         await self.create()
         await asyncio.to_thread((await self.get()).start)
 
@@ -343,9 +448,17 @@ class Node(Appliance):
         await asyncio.gather(*create_service_tasks)
 
     async def create_services(self) -> set[asyncio.Task]:
+        """
+        Create services in form of docker containers, that should be connected to this Node.
+        :return:
+        """
         return {asyncio.create_task(service.create()) for service in self.services}
 
     async def delete(self):
+        """
+        Stop and delete docker container representing a Node
+        :return:
+        """
         delete_services_tasks = await self.delete_services()
         await asyncio.gather(*delete_services_tasks)
 
@@ -353,19 +466,34 @@ class Node(Appliance):
         await asyncio.to_thread(container.remove, v=True, force=True)
 
     async def delete_services(self) -> set[asyncio.Task]:
+        """
+        Delete docker containers representing services connected to this Node.
+        :return:
+        """
         return {asyncio.create_task(service.delete()) for service in self.services}
 
 
 class Service(DockerContainerMixin, Base):
+    """
+    Service model representing docker container acting as a service running on Node, connected via network_mode.
+    """
     __tablename__ = "service"
 
     parent_node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
     parent_node: Mapped["Node"] = relationship(back_populates="services")
 
     async def get(self) -> Container:
+        """
+        Get a docker container representing a Service.
+        :return:
+        """
         return await asyncio.to_thread(self.client.containers.get, self.docker_id)
 
     async def create(self):
+        """
+        Create docker container representing a Service.
+        :return:
+        """
         kwargs = self.kwargs if self.kwargs is not None else {}
 
         container = await asyncio.to_thread(
@@ -383,5 +511,9 @@ class Service(DockerContainerMixin, Base):
         await asyncio.to_thread(container.start)
 
     async def delete(self):
+        """
+        Stop and delete a docker container representing a Service.
+        :return:
+        """
         container = await self.get()
         await asyncio.to_thread(container.remove, v=True, force=True)
