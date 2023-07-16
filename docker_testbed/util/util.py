@@ -50,19 +50,13 @@ def rewrite_ipaddress_with_prefix(old_ip: str, new_ip_prefix: str):
 
 
 # Unused function for rewriting ip addresses based on user input prefix
-async def get_docker_names(docker_client: DockerClient):
-    docker_container_names = []
-    docker_network_names = []
-    for container in await asyncio.to_thread(docker_client.containers.list, all=True):
-        docker_container_names.append(container.name)
-
-    for network in await asyncio.to_thread(docker_client.networks.list):
-        docker_network_names.append(network.name)
-
-    return set(docker_container_names), set(docker_network_names)
-
-
-async def check_used_ipaddreses(docker_client, parsed_networks: list[Network]):
+async def check_used_ipaddreses(docker_client: DockerClient, parsed_networks: list[Network]):
+    """
+    Check already used network ip spaces.
+    :param docker_client: client for docker rest api
+    :param parsed_networks: Network objects parsed from cyst infrastructure
+    :return:
+    """
     docker_networks = await asyncio.to_thread(docker_client.networks.list)
     for docker_network in docker_networks:
         if docker_network.name in ["none", "host"]:
@@ -76,7 +70,30 @@ async def check_used_ipaddreses(docker_client, parsed_networks: list[Network]):
                 raise Exception(f"Network with ip address {network_ip} already exists")
 
 
-async def get_available_networks(docker_client, parsed_networks: list[Network]):
+async def get_docker_names(docker_client: DockerClient):
+    """
+    Get already used docker names from running docker containers and networks.
+    :param docker_client: client for docker rest api
+    :return: sets of used docker names
+    """
+    docker_container_names = []
+    docker_network_names = []
+    for container in await asyncio.to_thread(docker_client.containers.list, all=True):
+        docker_container_names.append(container.name)
+
+    for network in await asyncio.to_thread(docker_client.networks.list):
+        docker_network_names.append(network.name)
+
+    return set(docker_container_names), set(docker_network_names)
+
+
+async def get_available_networks(docker_client: DockerClient, parsed_networks: list[Network]):
+    """
+    Get available networks for new infrastructure, also returns available ips for management networks.
+    :param docker_client: client for docker rest api
+    :param parsed_networks: Network objects parsed from cyst infrastructure
+    :return: list of available Networks, that can be used during infrastructure building.
+    """
     used_networks = set()
     docker_networks = await asyncio.to_thread(docker_client.networks.list)
     for docker_network in docker_networks:

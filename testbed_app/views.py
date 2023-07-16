@@ -26,7 +26,7 @@ async def build_infra(request: Request) -> Response:
     """
     responses:
       200:
-        description: Builds docker infra
+        description: Builds docker infrastructure
     """
 
     number_of_infrastructures = request.query_params.get("infrastructures", 1)
@@ -53,7 +53,7 @@ async def destroy_infra(request: Request) -> Response:
     """
     responses:
       200:
-        description: Destroys docker infra
+        description: Destroys docker infrastructure
     """
     infrastructure_ids = request.query_params.getlist("id")
     infrastructure_ids = [

@@ -4,11 +4,8 @@ from sqlalchemy import AsyncAdaptedQueuePool
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from os import getenv
 from pathlib import Path
-from netaddr import IPAddress, IPNetwork
 
 from testbed_app.models import Base
-from testbed_app.models import Network, Router, Service, Interface, Node
-from docker_testbed.util import constants
 
 BASE_DIR = Path(__file__).parent.parent.parent
 
@@ -30,10 +27,18 @@ session_factory = async_sessionmaker(async_engine, expire_on_commit=False)
 
 
 async def create_db():
+    """
+    Create database tables
+    :return: None
+    """
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
 async def destroy_db():
+    """
+    Drop database tables
+    :return:
+    """
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
