@@ -234,7 +234,7 @@ class Controller:
                 network.name = new_name
 
     @staticmethod
-    async def get_controller_with_infra_objects(infrastructure_ids: list[int] = None):
+    async def get_controller_with_infra_objects(infrastructure_ids: int = None):
         """
         Create a controller object with models that match the provided infrastructure ids.
         (used later for stopping and|or deleting docker objects referring to these models)
@@ -246,7 +246,7 @@ class Controller:
                 (
                     await session.scalars(
                         select(Node)
-                        .where(Node.infrastructure_id.in_(infrastructure_ids))
+                        .where(Node.infrastructure_id == infrastructure_ids)
                         .options(joinedload(Node.services))
                     )
                 )
@@ -266,7 +266,7 @@ class Controller:
                 (
                     await session.scalars(
                         select(Router).where(
-                            Router.infrastructure_id.in_(infrastructure_ids)
+                            Router.infrastructure_id == infrastructure_ids
                         )
                     )
                 ).all()
@@ -277,7 +277,7 @@ class Controller:
                 (
                     await session.scalars(
                         select(Network).where(
-                            Network.infrastructure_id.in_(infrastructure_ids)
+                            Network.infrastructure_id == infrastructure_ids
                         )
                     )
                 ).all()
@@ -289,7 +289,7 @@ class Controller:
                 (
                     await session.scalars(
                         select(Infrastructure).where(
-                            Infrastructure.id.in_(infrastructure_ids)
+                            Infrastructure.id == infrastructure_ids
                         )
                     )
                 ).all()
