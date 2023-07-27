@@ -3,9 +3,9 @@ from docker import DockerClient
 
 from netaddr import IPNetwork
 
-from cyst_infrastructure import RouterConfig, NodeConfig
+from cyst_infrastructure import RouterConfig, NodeConfig, scripted_attacker
 
-from testbed_app.models import Network, Service, Router, Interface, Node
+from testbed_app.models import Network, Service, Router, Interface, Node, Attacker
 from docker_testbed.util import constants
 
 
@@ -15,18 +15,18 @@ class CYSTParser:
         self.router_image = constants.IMAGE_ROUTER
         self.networks: list[Network] = []
         self.routers: list[Router] = []
-        self.nodes: list[Node] = []
+        self.nodes: list[Node, Attacker] = []
         self.images: set = set()
 
     # TODO
-    def parse_images(self):
+    async def parse_images(self):
         """
         Get images to build for infrastructure.
         :return:
         """
         self.images = set(constants.IMAGE_LIST)
 
-    def find_network(self, subnet: IPNetwork) -> Network:
+    async def find_network(self, subnet: IPNetwork) -> Network:
         """
         Find network object matching the subnet ip address.
         :param subnet: network ip address
@@ -39,34 +39,46 @@ class CYSTParser:
         raise RuntimeError(f"No network matching {subnet}.")
 
     @staticmethod
-    def get_service_configuration(name):
+    async def get_service_configuration(name):
         """
         This method will parse given details (will need more than just a name) and return Docker image with kwargs
         """
         # TODO
         return {"image": constants.IMAGE_BASE, "kwargs": {}}
 
-    def parse_networks(self, cyst_routers):
+    async def parse_networks(self, cyst_routers):
         """
         Create network models from cyst infrastructure prescription.
         :param cyst_routers: router objects from cyst infrastructure
         :return:
         """
+        generated_names = set()
         for cyst_router in cyst_routers:
             for interface in cyst_router.interfaces:
                 if not any(interface.net == n.ipaddress for n in self.networks):
-                    network_name = randomname.get_name(
-                        adj="colors", noun="astronomy", sep="_"
+                    while (
+                        network_name := randomname.get_name(
+                            adj="colors", noun="astronomy", sep="_"
+                        )
+                    ) in generated_names:
+                        continue
+
+                    generated_names.add(network_name)
+
+                    network_type = (
+                        constants.NETWORK_TYPE_INTERNAL
+                        if interface.ip != scripted_attacker.interfaces[0].ip
+                        else constants.NETWORK_TYPE_PUBLIC
                     )
                     network = Network(
                         ipaddress=interface.net,
                         router_gateway=interface.ip,
                         name=network_name,
-                        network_type=constants.NETWORK_TYPE_INTERNAL,
+                        network_type=network_type,
                     )
                     self.networks.append(network)
 
-    def parse_nodes(self, cyst_nodes):
+    async def parse_nodes(self, cyst_nodes):
         """
         Create node models from cyst infrastructure prescription.
         :param cyst_nodes: node objects from cyst infrastructure
@@ -74,33 +86,57 @@ class CYSTParser:
         """
         for cyst_node in cyst_nodes:
             interfaces = []
+
             for interface in cyst_node.interfaces:
                 interfaces.append(
                     Interface(
-                        ipaddress=interface.ip, network=self.find_network(interface.net)
+                        ipaddress=interface.ip,
+                        network=(await self.find_network(interface.net)),
                     )
                 )
 
-            node_image = constants.IMAGE_NODE
-            if (
-                specified_image := constants.TESTBED_IMAGES.get(cyst_node.id)
-            ) is not None:
-                node_image = specified_image
-
-            node = Node(
-                name=cyst_node.id,
-                interfaces=interfaces,
-                image=node_image,
+            node_image = (
+                specified_image
+                if (specified_image := constants.TESTBED_IMAGES.get(cyst_node.id))
+                is not None
+                else constants.IMAGE_NODE
             )
 
-            services = self.parse_services(
+            services = await self.parse_services(
                 cyst_node.active_services + cyst_node.passive_services
             )
 
-            node.services = services
+            environment = (
+                envs if (envs := constants.envs.get(cyst_node.id)) is not None else {}
+            )
+            command = (
+                container[constants.COMMAND]
+                if (container := constants.TESTBED_INFO.get(cyst_node.id))
+                else []
+            )
+
+            if cyst_node.id == "attacker_node":
+                node = Attacker(
+                    name=cyst_node.id,
+                    interfaces=interfaces,
+                    image=constants.TESTBED_IMAGES["attacker_node"],
+                    services=services,
+                    environment=environment,
+                    command=command,
+                )
+            else:
+                node = Node(
+                    name=cyst_node.id,
+                    interfaces=interfaces,
+                    image=node_image,
+                    services=services,
+                    environment=environment,
+                    command=command,
+                )
+
             self.nodes.append(node)
 
-    def parse_services(self, node_services: list):
+    async def parse_services(self, node_services: list):
         """
         Create service models from nodes in cyst infrastructure prescription.
         :param node_services: node objects from cyst infrastructure
@@ -109,23 +145,37 @@ class CYSTParser:
         services = []
 
         for cyst_service in node_services:
-            service_image = constants.IMAGE_NODE
-            if (
-                specified_image := constants.TESTBED_IMAGES.get(cyst_service.id)
-            ) is not None:
-                service_image = specified_image
+            service_image = (
+                specified_image
+                if (specified_image := constants.TESTBED_IMAGES.get(cyst_service.id))
+                is not None
+                else constants.IMAGE_NODE
+            )
 
-            configuration = self.get_service_configuration(cyst_service.id)
+            configuration = await self.get_service_configuration(cyst_service.id)
+            environment = (
+                envs
+                if (envs := constants.envs.get(cyst_service.id)) is not None
+                else {}
+            )
+            command = (
+                container[constants.COMMAND]
+                if (container := constants.TESTBED_INFO.get(cyst_service.id))
+                else []
+            )
+
             service = Service(
                 name=cyst_service.id,
                 image=service_image,
+                environment=environment,
+                command=command,
                 **configuration["kwargs"],
             )
             services.append(service)
 
         return services
 
-    def parse_routers(self, cyst_routers):
+    async def parse_routers(self, cyst_routers):
         """
         Create router models from nodes in cyst infrastructure prescription.
         :param cyst_routers: router objects from cyst infrastructure
@@ -135,7 +185,7 @@ class CYSTParser:
             interfaces = []
 
             for interface in cyst_router.interfaces:
-                network = self.find_network(interface.net)
+                network = await self.find_network(interface.net)
                 interfaces.append(
                     Interface(ipaddress=network.router_gateway, network=network)
                 )
@@ -152,14 +202,16 @@ class CYSTParser:
             )
             self.routers.append(router)
 
-    def parse(self, cyst_routers: list[RouterConfig], cyst_nodes: list[NodeConfig]):
+    async def parse(
+        self, cyst_routers: list[RouterConfig], cyst_nodes: list[NodeConfig]
+    ):
         """
         Create all necessary models for infrastructure based on parsed objects from cyst prescription.
         :param cyst_routers: router objects from cyst infrastructure
         :param cyst_nodes: node objects from cyst infrastructure
         :return:
         """
-        self.parse_networks(cyst_routers)
-        self.parse_routers(cyst_routers)
-        self.parse_nodes(cyst_nodes)
-        self.parse_images()
+        await self.parse_networks(cyst_routers)
+        await self.parse_routers(cyst_routers)
+        await self.parse_nodes(cyst_nodes)
+        await self.parse_images()

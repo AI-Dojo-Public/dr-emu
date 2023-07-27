@@ -1,6 +1,6 @@
 from sqlalchemy.orm import joinedload
 
-from testbed_app.database import create_db, destroy_db, session_factory
+from testbed_app.database import create_db, session_factory
 from fastapi import FastAPI
 
 from testbed_app.middleware import middleware
@@ -38,7 +38,8 @@ async def build_infra(number_of_infrastructures: int):
     docker_client = docker.from_env()
     for _ in range(int(number_of_infrastructures)):
         parser = CYSTParser(docker_client)
-        parser.parse(cyst_routers, cyst_nodes)
+        await parser.parse(cyst_routers, cyst_nodes)
+        # TODO: Move checking of used ips/names into the parser?
         controller = await Controller.prepare_controller_for_infra_creation(
             docker_client, parser
         )
@@ -73,16 +74,16 @@ async def destroy_infra(infrastructure_id: int):
 @app.get("/infrastructures/")
 async def get_infra_ids():
     async with session_factory() as session:
-        infrastracture_ids = (await session.scalars(select(Infrastructure.id))).all()
+        infrastructure_ids = (await session.scalars(select(Infrastructure.id))).all()
 
-    return {"infrastructure_ids": infrastracture_ids}
+    return {"infrastructure_ids": infrastructure_ids}
 
 
 @app.get("/infrastructures/get/{infrastructure_id}")
 async def get_infra(infrastructure_id: int):
     async with session_factory() as session:
         if infrastructure_id:
-            infrastractures = (
+            infrastructures = (
                 await session.scalars(
                     select(Infrastructure)
                     .where(Infrastructure.id == infrastructure_id)
@@ -94,10 +95,10 @@ async def get_infra(infrastructure_id: int):
             ).unique().all()
 
     result = {"message": {"appliances": [], "networks": {}}}
-    for infrastracture in infrastractures:
-        for appliance in infrastracture.appliances:
+    for infrastructure in infrastructures:
+        for appliance in infrastructure.appliances:
             result["message"]["appliances"].append(appliance.name)
-        for network in infrastracture.networks:
+        for network in infrastructure.networks:
             result["message"]["networks"].update({network.name: str(network.ipaddress)})
 
     return result

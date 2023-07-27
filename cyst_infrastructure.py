@@ -33,6 +33,22 @@ scripted_attacker = NodeConfig(
             local=True,
             access_level=AccessLevel.LIMITED,
             id="jtr_service"
+        ),
+        PassiveServiceConfig(
+            type="empire",
+            owner="empire",
+            version="4.10.0",
+            local=True,
+            access_level=AccessLevel.LIMITED,
+            id="empire_service"
+        ),
+        PassiveServiceConfig(
+            type="msf",
+            owner="msf",
+            version="0",
+            local=True,
+            access_level=AccessLevel.LIMITED,
+            id="msf_service"
         )
     ],
     traffic_processors=[],

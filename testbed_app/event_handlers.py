@@ -1,4 +1,4 @@
-from testbed_app.database import create_db, destroy_db
+from testbed_app.database import create_db
 
 on_startup = [create_db]
 on_shutdown = []

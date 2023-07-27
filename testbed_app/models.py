@@ -18,7 +18,7 @@ from sqlalchemy.orm import (
     mapped_column,
     Mapped,
 )
-from sqlalchemy_utils import force_instant_defaults
+from sqlalchemy_utils import force_instant_defaults, JSONType, ScalarListType
 
 from testbed_app.resources import docker_client
 from docker_testbed.util import constants
@@ -35,6 +35,7 @@ class DockerMixin:
     """
     Base class for docker models
     """
+
     __abstract__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -72,10 +73,14 @@ class DockerContainerMixin(DockerMixin):
     """
     Base class for docker container models
     """
+
     __abstract__ = True
 
     image: Mapped[str] = mapped_column(default=constants.IMAGE_BASE)
+    environment: Mapped[str] = mapped_column(JSONType, nullable=True)
+    command: Mapped[str] = mapped_column(ScalarListType, nullable=True)
     detach: Mapped[bool] = mapped_column(default=True)
+    tty: Mapped[bool] = mapped_column(default=True)
 
     @abstractmethod
     async def create(self):
@@ -106,6 +111,7 @@ class Network(DockerMixin, Base):
     """
     Docker network model.
     """
+
     __tablename__ = "network"
 
     name: Mapped[str] = mapped_column()
@@ -177,6 +183,7 @@ class Interface(Base):
     """
     Interface model connecting networks and appliances with the addition of an ipaddress.
     """
+
     __tablename__ = "interface"
 
     network_id: Mapped[int] = mapped_column(ForeignKey("network.id"), primary_key=True)
@@ -200,10 +207,10 @@ class Appliance(DockerContainerMixin, Base):
     """
     Docker container model, parent model for Node and Router.
     """
+
     __tablename__ = "appliance"
 
     _cap_add = mapped_column("cap_add", String, default="NET_ADMIN")
-    tty: Mapped[bool] = mapped_column(default=True)
     interfaces: Mapped[list["Interface"]] = relationship(
         back_populates="appliance", cascade="all, delete-orphan"
     )
@@ -251,7 +258,9 @@ class Appliance(DockerContainerMixin, Base):
         :return: HostConfig object
         """
         return await asyncio.to_thread(
-            self.client.api.create_host_config, cap_add=self.cap_add
+            self.client.api.create_host_config,
+            cap_add=self.cap_add,
+            restart_policy={"Name": "always"},
         )
 
     # TODO: add exception handling for missing docker image
@@ -272,6 +281,8 @@ class Appliance(DockerContainerMixin, Base):
                 detach=self.detach,
                 networking_config=network_config,
                 host_config=host_config,
+                environment=self.environment,
+                command=self.command,
             )
         )["Id"]
 
@@ -295,9 +306,11 @@ class Infrastructure(Base):
     """
     Infrastructure model, bundles networks and appliances.
     """
+
     __tablename__ = "infrastructure"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column()
     networks: Mapped[list["Network"]] = relationship(
         back_populates="infrastructure", cascade="all, delete-orphan"
     )
@@ -310,6 +323,7 @@ class Router(Appliance):
     """
     Router model representing docker container responsible for network routing.
     """
+
     __tablename__ = "router"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
@@ -325,7 +339,7 @@ class Router(Appliance):
         Configure ip routes, iptables on a router based on its type.
         :return:
         """
-        perimeter_config_instructions = []
+        config_instructions = ["ip route del default"]
 
         for interface in self.interfaces:
             if interface.network.network_type == constants.NETWORK_TYPE_MANAGEMENT:
@@ -337,41 +351,32 @@ class Router(Appliance):
                         management_interface.appliance.router_type
                         == constants.ROUTER_TYPE_INTERNAL
                     ):
-                        for router_interface in management_interface.appliance.interfaces:
+                        for (
+                            router_interface
+                        ) in management_interface.appliance.interfaces:
                             if (
                                 router_interface.network.network_type
                                 == constants.NETWORK_TYPE_INTERNAL
                             ):
-                                perimeter_config_instructions.append(
+                                config_instructions.append(
                                     f"ip route add {router_interface.network.ipaddress } via "
                                     f"{management_interface.ipaddress}"
                                 )
 
+                config_instructions.append(
+                    f"ip route add default via {interface.network.router_gateway}"
+                )
+
                 if self.router_type == constants.ROUTER_TYPE_PERIMETER:
-                    default_gateway = interface.network.bridge_gateway
-                else:
-                    default_gateway = interface.network.router_gateway
-
-        perimeter_config_instructions += [
-            "ip route del default",
-            f"ip route add default via {default_gateway}",
-            "iptables -t nat -A POSTROUTING -j MASQUERADE",
-            "iptables-save",
-        ]
-
-        internal_config_instructions = [
-            "ip route del default",
-            f"ip route add default via {default_gateway}",
-        ]
+                    config_instructions += [
+                        "iptables -t nat -A POSTROUTING -j MASQUERADE",
+                        "iptables-save",
+                    ]
 
         container = await self.get()
 
-        if self.router_type == constants.ROUTER_TYPE_PERIMETER:
-            for instruction in perimeter_config_instructions:
-                await asyncio.to_thread(container.exec_run, instruction)
-        else:
-            for instruction in internal_config_instructions:
-                await asyncio.to_thread(container.exec_run, instruction)
+        for instruction in config_instructions:
+            await asyncio.to_thread(container.exec_run, instruction)
 
     async def connect_to_networks(self):
         """
@@ -398,6 +403,7 @@ class Node(Appliance):
     """
     Node model representing docker container acting as a physical machine containing services
     """
+
     __tablename__ = "node"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
@@ -419,6 +425,7 @@ class Node(Appliance):
             self.client.api.create_host_config,
             cap_add=self.cap_add,
             ipc_mode=self.ipc_mode,
+            restart_policy={"Name": "always"},
         )
 
     async def configure(self):
@@ -473,10 +480,49 @@ class Node(Appliance):
         return {asyncio.create_task(service.delete()) for service in self.services}
 
 
+class Attacker(Node):
+    __mapper_args__ = {
+        "polymorphic_identity": "attacker",
+    }
+
+    async def start(self):
+        """
+        Start a docker container representing a Node.
+        :return:
+        """
+        await self.create()
+
+        container = await self.get()
+        await asyncio.to_thread(container.start)
+
+        # connect attacker to cryton network
+        self.client.networks.get(constants.CRYTON_NETWORK_NAME).connect(container)
+
+        create_service_tasks = await self.create_services()
+        await asyncio.gather(*create_service_tasks)
+
+    async def configure(self):
+        """
+        Configure ip tables on a Node.
+        :return:
+        """
+        pass
+        # container = await self.get()
+        #
+        # # TODO: what routes to add?
+        # setup_instructions = [
+        #     f"ip route add  via {str(self.interfaces[0].network.router_gateway)}",
+        # ]
+        #
+        # for instruction in setup_instructions:
+        #     await asyncio.to_thread(container.exec_run, cmd=instruction)
+
+
 class Service(DockerContainerMixin, Base):
     """
     Service model representing docker container acting as a service running on Node, connected via network_mode.
     """
+
     __tablename__ = "service"
 
     parent_node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
@@ -495,6 +541,14 @@ class Service(DockerContainerMixin, Base):
         :return:
         """
         kwargs = self.kwargs if self.kwargs is not None else {}
+        environment = (
+            envs if (envs := constants.envs.get(self.name) is not None) else {}
+        )
+        command = (
+            container[constants.COMMAND]
+            if (container := constants.TESTBED_INFO.get(self.name))
+            else None
+        )
 
         container = await asyncio.to_thread(
             self.client.containers.create,
@@ -504,6 +558,9 @@ class Service(DockerContainerMixin, Base):
             network_mode=f"container:{self.parent_node.name}",
             pid_mode=f"container:{self.parent_node.name}",
             ipc_mode=f"container:{self.parent_node.name}",
+            environment=self.environment,
+            command=self.command,
+            tty=self.tty,
             **kwargs,
         )
         self.docker_id = container.id
