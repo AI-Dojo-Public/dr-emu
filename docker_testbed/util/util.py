@@ -70,24 +70,35 @@ async def check_used_ipaddreses(docker_client: DockerClient, parsed_networks: li
                 raise Exception(f"Network with ip address {network_ip} already exists")
 
 
-async def get_docker_names(docker_client: DockerClient):
+async def get_container_names(docker_client: DockerClient) -> set[str]:
     """
     Get already used docker names from running docker containers and networks.
     :param docker_client: client for docker rest api
     :return: sets of used docker names
     """
     docker_container_names = []
-    docker_network_names = []
     for container in await asyncio.to_thread(docker_client.containers.list, all=True):
         docker_container_names.append(container.name)
+
+    return set(docker_container_names)
+
+
+async def get_network_names(docker_client: DockerClient) -> set[str]:
+    """
+    Get already used docker names from running docker containers and networks.
+    :param docker_client: client for docker rest api
+    :return: sets of used docker names
+    """
+
+    docker_network_names = []
 
     for network in await asyncio.to_thread(docker_client.networks.list):
         docker_network_names.append(network.name)
 
-    return set(docker_container_names), set(docker_network_names)
+    return set(docker_network_names)
 
 
-async def get_available_networks(docker_client: DockerClient, parsed_networks: list[Network]):
+async def get_available_networks(docker_client: DockerClient, parsed_networks: list[Network]) -> list[IPNetwork]:
     """
     Get available networks for new infrastructure, also returns available ips for management networks.
     :param docker_client: client for docker rest api
@@ -109,7 +120,7 @@ async def get_available_networks(docker_client: DockerClient, parsed_networks: l
         )
     default_networks_ips = {network.ipaddress for network in parsed_networks}
     if default_networks_ips.difference(used_networks) == default_networks_ips:
-        number_of_returned_subnets = 1
+        number_of_returned_subnets = 1  # default for management and simulated internet networks
     else:
         number_of_returned_subnets = len(parsed_networks) + 1
 

@@ -18,6 +18,7 @@ class Controller:
     """
     Class for handling actions regarding creating and destroying the infrastructure in docker.
     """
+
     def __init__(
         self,
         client: DockerClient,
@@ -62,8 +63,12 @@ class Controller:
         """
         print("starting infrastructure")
         await self.pull_images()
+
+        # TODO: make it that the random generated names of networks and nodes match the infra color name
         infrastructure = Infrastructure(
-            appliances=[*self.routers, *self.nodes], networks=self.networks
+            appliances=[*self.routers, *self.nodes],
+            networks=self.networks,
+            name=randomname.generate("adj/colors", "infrastructure") # TODO: make sure that the name is unique,
         )
 
         create_network_tasks = await self.create_networks()
@@ -217,7 +222,6 @@ class Controller:
 
         for container in containers:
             if container.name in container_names:
-                # TODO: containers limited by the number of colors :)
                 while (
                     new_name := randomname.generate("adj/colors", container.name)
                 ) in container_names:
@@ -226,9 +230,10 @@ class Controller:
 
         for network in self.networks:
             if network.name in network_names:
-                # TODO: networks limited by the number of colors :)
                 while (
-                    new_name := randomname.generate("adj/colors", network.name)
+                    new_name := randomname.get_name(
+                        adj="colors", noun="astronomy", sep="_"
+                    )
                 ) in network_names:
                     continue
                 network.name = new_name
@@ -302,7 +307,9 @@ class Controller:
         )
 
     @staticmethod
-    async def prepare_controller_for_infra_creation(docker_client: DockerClient, parser: CYSTParser):
+    async def prepare_controller_for_infra_creation(
+        docker_client: DockerClient, parser: CYSTParser
+    ):
         """
         Creates a management network for routers and changes names and ip addresses of models for new infrastructure if
         needed.
@@ -320,12 +327,21 @@ class Controller:
         available_networks = await util.get_available_networks(
             docker_client, parser.networks
         )
+
+        used_network_names = await util.get_network_names(docker_client)
+
+        while (
+            management_name := randomname.generate("adj/colors", "management")
+        ) in used_network_names:
+            continue
+        used_network_names.add(management_name)
         management_network = Network(
             ipaddress=available_networks[-1],
             router_gateway=available_networks[-1][1],
-            name=randomname.generate("adj/colors", "management"),
+            name=management_name,
             network_type=constants.NETWORK_TYPE_MANAGEMENT,
         )
+
         for router, ip_address in zip(
             controller.routers, management_network.ipaddress[2:]
         ):
@@ -345,10 +361,12 @@ class Controller:
 
         # 1 available network means that only management network with default cyst infra should be created
         if len(available_networks) > 1:
-            container_names, network_names = await util.get_docker_names(docker_client)
             await asyncio.gather(
                 controller.change_ipadresses(available_networks),
-                controller.change_names(container_names, network_names),
+                controller.change_names(
+                    container_names=await util.get_container_names(docker_client),
+                    network_names=await util.get_network_names(docker_client),
+                ),
             )
 
         return controller
