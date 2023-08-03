@@ -1,5 +1,4 @@
 import asyncio
-import netaddr
 from docker import DockerClient
 from netaddr import IPNetwork, IPAddress
 
@@ -7,7 +6,7 @@ from testbed_app.models import Network
 from cyst_infrastructure import RouterConfig, NodeConfig
 
 
-# Unusedfunction for rewriting ip addresses based on user input prefix
+# Unused function for rewriting ip addresses based on user input prefix
 def change_ipadresses(
     nodes: list[NodeConfig], routers: list[RouterConfig], ip_prefix: str
 ):

@@ -23,7 +23,7 @@ from sqlalchemy_utils import force_instant_defaults, JSONType, ScalarListType
 from testbed_app.resources import docker_client
 from docker_testbed.util import constants
 
-# TODO: add init to models that require defaults instead of this?
+# TODO: add init methods with defaults to models instead of this?
 force_instant_defaults()
 
 
@@ -327,6 +327,9 @@ class Router(Appliance):
     __tablename__ = "router"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
+    firewall_rules: Mapped[list["FirewallRule"]] = relationship(
+        back_populates="router", cascade="all, delete-orphan"
+    )
     router_type: Mapped[str] = mapped_column(nullable=True)
 
     __mapper_args__ = {
@@ -341,6 +344,15 @@ class Router(Appliance):
         """
         config_instructions = ["ip route del default"]
 
+        await self._setup_interfaces(config_instructions)
+        await self._setup_firewall(config_instructions)
+
+        container = await self.get()
+
+        for instruction in config_instructions:
+            await asyncio.to_thread(container.exec_run, instruction)
+
+    async def _setup_interfaces(self, config_instructions: list[str]):
         for interface in self.interfaces:
             if interface.network.network_type == constants.NETWORK_TYPE_MANAGEMENT:
                 management_network = interface.network
@@ -373,10 +385,14 @@ class Router(Appliance):
                         "iptables-save",
                     ]
 
-        container = await self.get()
-
-        for instruction in config_instructions:
-            await asyncio.to_thread(container.exec_run, instruction)
+    async def _setup_firewall(self, config_instructions: list[str]):
+        for fw_rule in self.firewall_rules:
+            if fw_rule.policy == constants.FIREWALL_DENY:
+                config_instructions += [
+                    f"iptables -A FORWARD -s {fw_rule.src_net.ipaddress} -d {fw_rule.dst_net.ipaddress} -m state "
+                    f"--state RELATED,ESTABLISHED -j ACCEPT",
+                    f"iptables -A FORWARD -s {fw_rule.src_net.ipaddress} -d {fw_rule.dst_net.ipaddress} -j DROP",
+                ]
 
     async def connect_to_networks(self):
         """
@@ -397,6 +413,24 @@ class Router(Appliance):
         await self.create()
         (await self.get()).start()
         await self.connect_to_networks()
+
+
+class FirewallRule(Base):
+    """
+    Represents a firewall rule, which applies a firewall policy based on source and destination.
+    """
+
+    __tablename__ = "firewall_rule"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    src_net_id: Mapped[int] = mapped_column(ForeignKey("network.id"))
+    dst_net_id: Mapped[int] = mapped_column(ForeignKey("network.id"))
+    src_net: Mapped["Network"] = relationship("Network", foreign_keys=[src_net_id])
+    dst_net: Mapped["Network"] = relationship("Network", foreign_keys=[dst_net_id])
+    router_id: Mapped[int] = mapped_column(ForeignKey("router.id"))
+    router: Mapped["Router"] = relationship(back_populates="firewall_rules")
+    service: Mapped[str] = mapped_column()
+    policy: Mapped[str] = mapped_column()
 
 
 class Node(Appliance):
@@ -442,6 +476,7 @@ class Node(Appliance):
 
         for instruction in setup_instructions:
             await asyncio.to_thread(container.exec_run, cmd=instruction)
+            print(f"{self.name} configured")
 
     async def start(self):
         """
