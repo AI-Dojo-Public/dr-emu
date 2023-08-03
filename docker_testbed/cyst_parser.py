@@ -5,7 +5,15 @@ from netaddr import IPNetwork
 
 from cyst_infrastructure import RouterConfig, NodeConfig, scripted_attacker
 
-from testbed_app.models import Network, Service, Router, Interface, Node, Attacker
+from testbed_app.models import (
+    Network,
+    Service,
+    Router,
+    Interface,
+    Node,
+    Attacker,
+    FirewallRule,
+)
 from docker_testbed.util import constants
 
 
@@ -183,6 +191,7 @@ class CYSTParser:
         """
         for cyst_router in cyst_routers:
             interfaces = []
+            firewall_rules = []
 
             for interface in cyst_router.interfaces:
                 network = await self.find_network(interface.net)
@@ -194,11 +203,25 @@ class CYSTParser:
                 "perimeter" if cyst_router.id == "perimeter_router" else "internal"
             )
 
+            # TODO: Better FirewallRule extraction if there will different cyst configuration
+            for firewall_rule in cyst_router.traffic_processors[0].chains[0].rules:
+                destination = await self.find_network(firewall_rule.dst_net)
+                source = await self.find_network(firewall_rule.src_net)
+                firewall_rules.append(
+                    FirewallRule(
+                        src_net=source,
+                        dst_net=destination,
+                        service=firewall_rule.service,
+                        policy=firewall_rule.policy.name,
+                    )
+                )
+
             router = Router(
                 name=cyst_router.id,
                 router_type=router_type,
                 interfaces=interfaces,
                 image=constants.IMAGE_ROUTER,
+                firewall_rules=firewall_rules
             )
             self.routers.append(router)
 

@@ -33,6 +33,9 @@ ENVIRONMENT = "environment"
 SERVICE_HEALTHY = "service_healthy"
 SERVICE_STARTED = "service_started"
 
+FIREWALL_ALLOW = "ALLOW"
+FIREWALL_DENY = "DENY"
+
 CRYTON_NETWORK_IP = IPNetwork(
     yaml.load(open(rf"{compose_path}"), Loader=yaml.FullLoader)["networks"]["cryton"][
         "ipam"
@@ -177,7 +180,7 @@ TESTBED_INFO = {
     },
     "postgres_node": {
         IMAGE: "alpine:latest",
-        COMMAND: "sleep infinity",
+        COMMAND: ["sleep", "infinity"],
     },
     "user_node": {
         IMAGE: "registry.gitlab.ics.muni.cz:443/cryton/beast-demo:vuln-user",

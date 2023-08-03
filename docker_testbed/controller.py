@@ -10,7 +10,7 @@ from sqlalchemy.orm import joinedload
 
 from docker_testbed.cyst_parser import CYSTParser
 from docker_testbed.util import constants, util
-from testbed_app.models import Network, Node, Router, Infrastructure, Interface
+from testbed_app.models import Network, Node, Router, Infrastructure, Interface, Attacker
 from testbed_app.database import session_factory
 
 
@@ -24,7 +24,7 @@ class Controller:
         client: DockerClient,
         networks: list[Network],
         routers: list[Router],
-        nodes: list[Node],
+        nodes: list[Node, Attacker],
         images: set,
         infrastructures: Optional[list[Infrastructure]] = None,
     ):
