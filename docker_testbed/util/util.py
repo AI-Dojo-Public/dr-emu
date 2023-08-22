@@ -1,5 +1,6 @@
 import asyncio
 from docker import DockerClient
+import docker.errors
 from netaddr import IPNetwork, IPAddress
 
 from testbed_app.models import Network
@@ -49,7 +50,9 @@ def rewrite_ipaddress_with_prefix(old_ip: str, new_ip_prefix: str):
 
 
 # Unused function for rewriting ip addresses based on user input prefix
-async def check_used_ipaddreses(docker_client: DockerClient, parsed_networks: list[Network]):
+async def check_used_ipaddreses(
+    docker_client: DockerClient, parsed_networks: list[Network]
+):
     """
     Check already used network ip spaces.
     :param docker_client: client for docker rest api
@@ -97,9 +100,14 @@ async def get_network_names(docker_client: DockerClient) -> set[str]:
     return set(docker_network_names)
 
 
-async def get_available_networks(docker_client: DockerClient, parsed_networks: list[Network]) -> list[IPNetwork]:
+async def get_available_networks(
+    docker_client: DockerClient,
+    parsed_networks: list[Network],
+    number_of_infrastructures: int,
+) -> list[IPNetwork]:
     """
     Get available networks for new infrastructure, also returns available ips for management networks.
+    :param number_of_infrastructures:
     :param docker_client: client for docker rest api
     :param parsed_networks: Network objects parsed from cyst infrastructure
     :return: list of available Networks, that can be used during infrastructure building.
@@ -117,15 +125,19 @@ async def get_available_networks(docker_client: DockerClient, parsed_networks: l
                 ]["Subnet"]
             )
         )
+
+    default_infra_ipspace = False
     default_networks_ips = {network.ipaddress for network in parsed_networks}
     if default_networks_ips.difference(used_networks) == default_networks_ips:
-        number_of_returned_subnets = 1  # default for management and simulated internet networks
-    else:
-        number_of_returned_subnets = len(parsed_networks) + 1
+        default_infra_ipspace = True
+    number_of_returned_subnets = (
+        (1+len(parsed_networks))*number_of_infrastructures
+    )
 
+    # TODO: what if I run out of ip address space?
     supernet = IPNetwork("192.168.0.0/16")  # Rework as a user input in the future
     subnets = supernet.subnet(24)
-    available_subnets = []
+    available_subnets = list(default_networks_ips) if default_infra_ipspace else []
 
     for subnet in subnets:
         if subnet not in used_networks:
@@ -134,3 +146,25 @@ async def get_available_networks(docker_client: DockerClient, parsed_networks: l
             break
 
     return available_subnets
+
+
+async def pull_images(docker_client, images):
+    """
+    Pull docker images that will be used in the infrastructure.
+    :return:
+    """
+    pull_image_tasks = set()
+
+    for image in images:
+        try:
+            await asyncio.to_thread(docker_client.images.get, image)
+        except docker.errors.ImageNotFound:
+            print(f"pulling image: {image}")
+            pull_image_tasks.add(
+                asyncio.create_task(
+                    asyncio.to_thread(docker_client.images.pull, image)
+                )
+            )
+
+    if pull_image_tasks:
+        await asyncio.gather(*pull_image_tasks)

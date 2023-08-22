@@ -1,3 +1,5 @@
+from typing import Optional
+
 import randomname
 from docker import DockerClient
 
@@ -221,7 +223,7 @@ class CYSTParser:
                 router_type=router_type,
                 interfaces=interfaces,
                 image=constants.IMAGE_ROUTER,
-                firewall_rules=firewall_rules
+                firewall_rules=firewall_rules,
             )
             self.routers.append(router)
 
