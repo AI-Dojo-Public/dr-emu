@@ -375,15 +375,17 @@ class Router(Appliance):
                                     f"{management_interface.ipaddress}"
                                 )
 
-                config_instructions.append(
-                    f"ip route add default via {interface.network.router_gateway}"
-                )
-
                 if self.router_type == constants.ROUTER_TYPE_PERIMETER:
                     config_instructions += [
+                        f"ip route add default via {interface.network.bridge_gateway}",
                         "iptables -t nat -A POSTROUTING -j MASQUERADE",
                         "iptables-save",
                     ]
+
+                else:
+                    config_instructions.append(
+                        f"ip route add default via {interface.network.router_gateway}"
+                    )
 
     async def _setup_firewall(self, config_instructions: list[str]):
         for fw_rule in self.firewall_rules:
@@ -476,7 +478,6 @@ class Node(Appliance):
 
         for instruction in setup_instructions:
             await asyncio.to_thread(container.exec_run, cmd=instruction)
-            print(f"{self.name} configured")
 
     async def start(self):
         """

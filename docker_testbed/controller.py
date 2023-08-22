@@ -8,12 +8,19 @@ from netaddr import IPNetwork
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from docker_testbed.cyst_parser import CYSTParser
 from docker_testbed.util import constants, util
-from testbed_app.models import Network, Node, Router, Infrastructure, Interface, Attacker
+from testbed_app.models import (
+    Network,
+    Node,
+    Router,
+    Infrastructure,
+    Interface,
+    Attacker,
+)
 from testbed_app.database import session_factory
 
 
+# TODO: merge Infrastructure and Controller class into one? (Infrastructure Controller)
 class Controller:
     """
     Class for handling actions regarding creating and destroying the infrastructure in docker.
@@ -26,35 +33,14 @@ class Controller:
         routers: list[Router],
         nodes: list[Node, Attacker],
         images: set,
-        infrastructures: Optional[list[Infrastructure]] = None,
+        infrastructure: Optional[Infrastructure] = None,
     ):
         self.client = client
         self.networks = networks
         self.routers = routers
         self.nodes = nodes
         self.images = images
-        self.infrastructures = infrastructures
-
-    async def pull_images(self):
-        """
-        Pull docker images that will be used in the infrastructure.
-        :return:
-        """
-        pull_image_tasks = set()
-
-        for image in self.images:
-            try:
-                await asyncio.to_thread(self.client.images.get, image)
-            except docker.errors.ImageNotFound:
-                print(f"pulling image: {image}")
-                pull_image_tasks.add(
-                    asyncio.create_task(
-                        asyncio.to_thread(self.client.images.pull, image)
-                    )
-                )
-
-        if pull_image_tasks:
-            await asyncio.gather(*pull_image_tasks)
+        self.infrastructure = infrastructure
 
     async def start(self):
         """
@@ -62,29 +48,25 @@ class Controller:
         :return:
         """
         print("starting infrastructure")
-        await self.pull_images()
 
-        # TODO: make it that the random generated names of networks and nodes match the infra color name
-        infrastructure = Infrastructure(
-            appliances=[*self.routers, *self.nodes],
-            networks=self.networks,
-            name=randomname.generate("adj/colors", "infrastructure") # TODO: make sure that the name is unique,
-        )
+        try:
+            create_network_tasks = await self.create_networks()
+            await asyncio.gather(*create_network_tasks)
 
-        create_network_tasks = await self.create_networks()
-        await asyncio.gather(*create_network_tasks)
+            start_router_tasks = await self.start_routers()
+            start_node_tasks = await self.start_nodes()
 
-        start_router_tasks = await self.start_routers()
-        start_node_tasks = await self.start_nodes()
+            await asyncio.gather(*start_node_tasks, *start_router_tasks)
 
-        await asyncio.gather(*start_node_tasks, *start_router_tasks)
-
-        configure_appliance_tasks = await self.configure_appliances()
-        await asyncio.gather(*configure_appliance_tasks)
+            configure_appliance_tasks = await self.configure_appliances()
+            await asyncio.gather(*configure_appliance_tasks)
+        except Exception as ex:
+            await self.stop(check_id=True)
+            raise ex
 
         async with session_factory() as session:
             session.add_all(
-                [*self.networks, *self.routers, *self.nodes, infrastructure]
+                [*self.networks, *self.routers, *self.nodes, self.infrastructure]
             )
             await session.commit()
 
@@ -173,20 +155,13 @@ class Controller:
                 node_tasks.add(asyncio.create_task(node.delete()))
         return node_tasks
 
-    async def delete_infrastructures(self):
+    async def delete_infrastructure(self):
         """
         Delete infrastructure and all models belonging to it (cascade deletion) from db.
         :return:
         """
         async with session_factory() as session:
-            infra_delete_tasks = set()
-
-            for infrastructure in self.infrastructures:
-                infra_delete_tasks.add(
-                    asyncio.create_task(session.delete(infrastructure))
-                )
-
-            await asyncio.gather(*infra_delete_tasks)
+            await session.delete(self.infrastructure)
             await session.commit()
 
     async def change_ipadresses(self, available_networks: list[IPNetwork]):
@@ -198,7 +173,7 @@ class Controller:
         for network, available_network in zip(self.networks, available_networks):
             network.ipaddress = available_network
 
-            # TODO: make difference for routers and nodes? (routers would have first available ip)
+            # first address is used for management network in parent function
             for interface, available_ip in zip(
                 network.interfaces, available_network[1:]
             ):
@@ -223,27 +198,32 @@ class Controller:
         for container in containers:
             if container.name in container_names:
                 while (
-                    new_name := randomname.generate("adj/colors", container.name)
+                    new_name := f"{self.infrastructure.name}-{container.name}"
                 ) in container_names:
                     continue
                 container.name = new_name
-
+                container_names.add(new_name)
+            else:
+                container_names.add(container.name)
         for network in self.networks:
             if network.name in network_names:
                 while (
-                    new_name := randomname.get_name(
-                        adj="colors", noun="astronomy", sep="_"
+                    new_name := randomname.generate(
+                        self.infrastructure.name, "noun/astronomy"
                     )
                 ) in network_names:
                     continue
                 network.name = new_name
+                network_names.add(new_name)
+            else:
+                container_names.add(network.name)
 
     @staticmethod
-    async def get_controller_with_infra_objects(infrastructure_ids: int = None):
+    async def get_controller_with_infra_objects(infrastructure_id: int = None):
         """
         Create a controller object with models that match the provided infrastructure ids.
         (used later for stopping and|or deleting docker objects referring to these models)
-        :param infrastructure_ids: IDs of infrastructures
+        :param infrastructure_id: ID of infrastructure
         :return: Controller object with models belonging to the provided infrastructures.
         """
         async with session_factory() as session:
@@ -251,13 +231,13 @@ class Controller:
                 (
                     await session.scalars(
                         select(Node)
-                        .where(Node.infrastructure_id == infrastructure_ids)
+                        .where(Node.infrastructure_id == infrastructure_id)
                         .options(joinedload(Node.services))
                     )
                 )
                 .unique()
                 .all()
-                if infrastructure_ids
+                if infrastructure_id
                 else (
                     await session.scalars(
                         select(Node).options(joinedload(Node.services))
@@ -271,61 +251,61 @@ class Controller:
                 (
                     await session.scalars(
                         select(Router).where(
-                            Router.infrastructure_id == infrastructure_ids
+                            Router.infrastructure_id == infrastructure_id
                         )
                     )
                 ).all()
-                if infrastructure_ids
+                if infrastructure_id
                 else (await session.scalars(select(Router))).all()
             )
             networks = (
                 (
                     await session.scalars(
                         select(Network).where(
-                            Network.infrastructure_id == infrastructure_ids
+                            Network.infrastructure_id == infrastructure_id
                         )
                     )
                 ).all()
-                if infrastructure_ids
+                if infrastructure_id
                 else (await session.scalars(select(Network))).all()
             )
 
-            infrastructures = (
-                (
-                    await session.scalars(
-                        select(Infrastructure).where(
-                            Infrastructure.id == infrastructure_ids
-                        )
-                    )
-                ).all()
-                if infrastructure_ids
-                else (await session.scalars(select(Infrastructure))).all()
-            )
+            # Exception handled in outer function
+            infrastructure = (
+                await session.execute(
+                    select(Infrastructure).where(Infrastructure.id == infrastructure_id)
+                )
+            ).scalar_one()
 
         return Controller(
-            docker.from_env(), networks, routers, nodes, set(), infrastructures
+            docker.from_env(), networks, routers, nodes, set(), infrastructure
         )
 
     @staticmethod
     async def prepare_controller_for_infra_creation(
-        docker_client: DockerClient, parser: CYSTParser
+        docker_client: DockerClient,
+        networks: list[Network],
+        routers: list[Router],
+        nodes: list[Node, Attacker],
+        infrastructure: Infrastructure,
+        images,
+        available_networks,
     ):
         """
         Creates a management network for routers and changes names and ip addresses of models for new infrastructure if
         needed.
+        :param available_networks:
+        :param infrastructure:
+        :param images:
+        :param nodes:
+        :param routers:
+        :param networks:
         :param docker_client: client for docker rest api
-        :param parser: CYSTParser object
         :return: Controller with prepared object for building a new infrastructure
         """
+
         controller = Controller(
-            docker_client,
-            parser.networks,
-            parser.routers,
-            parser.nodes,
-            parser.images,
-        )
-        available_networks = await util.get_available_networks(
-            docker_client, parser.networks
+            docker_client, networks, routers, nodes, images, infrastructure
         )
 
         used_network_names = await util.get_network_names(docker_client)
@@ -358,15 +338,13 @@ class Controller:
                 )
 
         controller.networks.append(management_network)
+        infrastructure.networks.append(management_network)
 
-        # 1 available network means that only management network with default cyst infra should be created
-        if len(available_networks) > 1:
+        if [str(network) for network in available_networks] != [
+            str(network.ipaddress) for network in controller.networks
+        ]:
             await asyncio.gather(
                 controller.change_ipadresses(available_networks),
-                controller.change_names(
-                    container_names=await util.get_container_names(docker_client),
-                    network_names=await util.get_network_names(docker_client),
-                ),
             )
 
         return controller
