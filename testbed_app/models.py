@@ -299,7 +299,7 @@ class Appliance(DockerContainerMixin, Base):
         :return:
         """
         container = await self.get()
-        await asyncio.to_thread(container.remove, v=True, force=True)
+        await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
 
 
 class Infrastructure(Base):
@@ -350,7 +350,7 @@ class Router(Appliance):
         container = await self.get()
 
         for instruction in config_instructions:
-            await asyncio.to_thread(container.exec_run, instruction)
+            await asyncio.to_thread(container.exec_run, instruction)  # type: ignore
 
     async def _setup_interfaces(self, config_instructions: list[str]):
         for interface in self.interfaces:
@@ -477,7 +477,7 @@ class Node(Appliance):
         ]
 
         for instruction in setup_instructions:
-            await asyncio.to_thread(container.exec_run, cmd=instruction)
+            await asyncio.to_thread(container.exec_run, cmd=instruction)  # type: ignore
 
     async def start(self):
         """
@@ -506,7 +506,7 @@ class Node(Appliance):
         await asyncio.gather(*delete_services_tasks)
 
         container = await self.get()
-        await asyncio.to_thread(container.remove, v=True, force=True)
+        await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
 
     async def delete_services(self) -> set[asyncio.Task]:
         """
@@ -609,4 +609,4 @@ class Service(DockerContainerMixin, Base):
         :return:
         """
         container = await self.get()
-        await asyncio.to_thread(container.remove, v=True, force=True)
+        await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
