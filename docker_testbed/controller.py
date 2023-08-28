@@ -47,7 +47,7 @@ class Controller:
         Executes all necessary functions for building an infrastructure and saves created models to the database.
         :return:
         """
-        print("starting infrastructure")
+        print(f"Starting infrastructure with name: {self.infrastructure.name}")
 
         try:
             create_network_tasks = await self.create_networks()
@@ -69,6 +69,10 @@ class Controller:
                 [*self.networks, *self.routers, *self.nodes, self.infrastructure]
             )
             await session.commit()
+
+        print(
+            f"Created infrastructure with id: {self.infrastructure.id}, name: {self.infrastructure.name}"
+        )
 
     async def create_networks(self) -> set[asyncio.Task]:
         """
