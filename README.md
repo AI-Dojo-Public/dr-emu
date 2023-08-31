@@ -34,12 +34,11 @@ docker compose up -d
 
 **IMPORTANT: Web application uses docker on host via mounted docker socket.**
 
-To build the infrastructures use the following command with `infrastructures=<number-of-infrastructures>` parameter
-```bash
-curl localhost:8000/create-infra?infrastructures=2
-```
+## Usage
+For REST API documentation, see `http://127.0.0.1:8000/docs`.
 
-To destroy infrastructures use following command with `id=<id-of-infrastructure>` parameter:
-```bash
-curl localhost:8000/destroy-infra?id=1&id=2
+### CLI
+Application also has a command line interface. Use the following command to invoke the app: 
+```
+dr-emu --help
 ```

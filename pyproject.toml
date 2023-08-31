@@ -28,5 +28,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-milan-app-cli = 'cli.main:app'
-
+dr-emu = 'cli.main:app'
