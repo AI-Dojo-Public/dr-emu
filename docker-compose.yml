@@ -1,35 +1,35 @@
 version: '3.9'
 services:
-  aidojo_db:
-    restart: always
-    image: postgres:15
-    container_name: aidojo-db
-    env_file:
-      - .env
-    volumes:
-      - ai-dojo-testbed:/var/lib/postgresql/data
-    healthcheck:
-      test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
-      interval: 20s
-      timeout: 10s
-      retries: 5
-
-  aidojo_app:
-    restart: always
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: aidojo-app
-    container_name: aidojo-app
-    depends_on:
-      aidojo_db:
-        condition: service_healthy
-    ports:
-      - "0.0.0.0:8000:8000"
-    env_file:
-      - .env
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+#  aidojo_db:
+#    restart: always
+#    image: postgres:15
+#    container_name: aidojo-db
+#    env_file:
+#      - .env
+#    volumes:
+#      - ai-dojo-testbed:/var/lib/postgresql/data
+#    healthcheck:
+#      test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+#      interval: 20s
+#      timeout: 10s
+#      retries: 5
+#
+#  aidojo_app:
+#    restart: always
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#      target: aidojo-app
+#    container_name: aidojo-app
+#    depends_on:
+#      aidojo_db:
+#        condition: service_healthy
+#    ports:
+#      - "0.0.0.0:8000:8000"
+#    env_file:
+#      - .env
+#    volumes:
+#      - /var/run/docker.sock:/var/run/docker.sock
 
   cryton_core:
     restart: always
@@ -47,7 +47,7 @@ services:
 
     networks:
       cryton:
-        ipv4_address: 192.168.1.10
+        ipv4_address: 192.168.250.10
 
   cryton_proxy:
     restart: always
@@ -78,7 +78,7 @@ services:
       retries: 5
     networks:
       cryton:
-        ipv4_address: 192.168.1.13
+        ipv4_address: 192.168.250.13
 
   cryton_pgbouncer:
     restart: always
@@ -102,7 +102,7 @@ services:
 
     networks:
       cryton:
-        ipv4_address: 192.168.1.14
+        ipv4_address: 192.168.250.14
 
   cryton_rabbit:
     restart: always
@@ -129,7 +129,7 @@ services:
 
     networks:
       cryton:
-        ipv4_address: 192.168.1.15
+        ipv4_address: 192.168.250.15
 
   cryton_cli:
     restart: always
@@ -152,7 +152,7 @@ services:
       - "127.0.0.1:8080:80"
     networks:
       cryton:
-        ipv4_address: 192.168.1.12
+        ipv4_address: 192.168.250.12
 
 
 volumes:
@@ -164,5 +164,5 @@ networks:
   cryton:
     ipam:
       config:
-        - subnet: 192.168.1.0/24
-          gateway: 192.168.1.250
+        - subnet: 192.168.250.0/24
+          gateway: 192.168.250.250

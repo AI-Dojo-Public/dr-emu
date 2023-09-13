@@ -14,9 +14,9 @@ from sqlalchemy.exc import NoResultFound
 import docker
 
 from docker_testbed.cyst_parser import CYSTParser
-from docker_testbed.controller import Controller
+from testbed_app.controllers.instance import InstanceController
 
-from cyst_infrastructure import nodes as cyst_nodes, routers as cyst_routers
+from cyst_infrastructure import nodes as cyst_nodes, routers as cyst_routers, attacker
 
 
 async def build_infras(number_of_infrastructures: int):
@@ -37,7 +37,7 @@ async def build_infras(number_of_infrastructures: int):
         # need to parse infra at every iteration due to python reference holding and because sqlalchemy models cannot be
         # deep copied
         parser = CYSTParser(docker_client)
-        await parser.parse(cyst_routers, cyst_nodes)
+        await parser.parse(cyst_routers, cyst_nodes, attacker)
         if not available_networks:
             available_networks += await util.get_available_networks(
                 docker_client, parser.networks, number_of_infrastructures
@@ -54,16 +54,14 @@ async def build_infras(number_of_infrastructures: int):
             continue
 
         infrastructure = Infrastructure(
-            appliances=[*parser.routers, *parser.nodes],
+            routers=parser.routers,
+            nodes=parser.nodes,
             networks=parser.networks,
             name=infra_name,
         )
 
-        controller = await Controller.prepare_controller_for_infra_creation(
+        controller = await InstanceController.prepare_controller_for_infra_creation(
             docker_client,
-            networks=parser.networks,
-            routers=parser.routers,
-            nodes=parser.nodes,
             images=parser.images,
             available_networks=available_networks[slice_start:slice_end],
             infrastructure=infrastructure,
@@ -73,6 +71,11 @@ async def build_infras(number_of_infrastructures: int):
             container_names=docker_container_names,
             network_names=docker_network_names,
         )
+
+        async with session_factory() as session:
+            session.add(controller.infrastructure)
+            await session.commit()
+
         controller_start_tasks.add(asyncio.create_task(controller.start()))
 
     await asyncio.gather(*controller_start_tasks)
@@ -85,22 +88,16 @@ async def destroy_infra(infrastructure_id: int) -> dict:
         description: Destroys docker infrastructure
     """
     try:
-        controller = await Controller.get_controller_with_infra_objects(
-            infrastructure_id
-        )
+        controller = await InstanceController.get_controller_with_infra_objects(infrastructure_id)
     except NoResultFound:
         return {"message": f"Infrastructure with id: {infrastructure_id} doesn't exist"}
 
-    print(
-        f"Deleting infrastructure with id: {controller.infrastructure.id}, name: {controller.infrastructure.name}."
-    )
+    print(f"Deleting infrastructure with id: {controller.infrastructure.id}, name: {controller.infrastructure.name}.")
     # destroy docker objects
     await controller.stop(check_id=True)
     # delete objects from db
     await controller.delete_infrastructure()
-    print(
-        f"Infrastructure with id: {controller.infrastructure.id}, name: {controller.infrastructure.name} deleted."
-    )
+    print(f"Infrastructure with id: {controller.infrastructure.id}, name: {controller.infrastructure.name} deleted.")
 
 
 async def get_infra_ids() -> list[int]:
@@ -109,6 +106,11 @@ async def get_infra_ids() -> list[int]:
 
 
 async def get_infra(infrastructure_id: int) -> Union[dict, str]:
+    """
+    Parse info about infrastructure specified by ID.
+    :param infrastructure_id: infrastructuer ID
+    :return: infrastructure description
+    """
     try:
         async with session_factory() as session:
             infrastructure = (
@@ -136,7 +138,5 @@ async def get_infra(infrastructure_id: int) -> Union[dict, str]:
             "appliances": [],
         }
         for interface in network.interfaces:
-            result["networks"][network.name]["appliances"].append(
-                (interface.appliance.name, str(interface.ipaddress))
-            )
+            result["networks"][network.name]["appliances"].append((interface.appliance.name, str(interface.ipaddress)))
     return result

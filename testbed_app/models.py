@@ -1,6 +1,6 @@
 from __future__ import annotations
 import asyncio
-from typing import Optional
+from typing import Optional, Union
 from abc import abstractmethod
 from netaddr import IPAddress, IPNetwork
 
@@ -10,7 +10,7 @@ from docker.models.containers import Container
 from docker.models.networks import Network as DockerNetwork
 from docker.types import IPAMPool, IPAMConfig
 
-from sqlalchemy import ForeignKey, String, JSON
+from sqlalchemy import ForeignKey, String, JSON, Column, Table
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -18,7 +18,7 @@ from sqlalchemy.orm import (
     mapped_column,
     Mapped,
 )
-from sqlalchemy_utils import force_instant_defaults, JSONType, ScalarListType
+from sqlalchemy_utils import force_instant_defaults, ScalarListType
 
 from testbed_app.resources import docker_client
 from docker_testbed.util import constants
@@ -28,7 +28,7 @@ force_instant_defaults()
 
 
 class Base(AsyncAttrs, DeclarativeBase):
-    pass
+    id: Mapped[int] = mapped_column(primary_key=True)
 
 
 class DockerMixin:
@@ -38,8 +38,7 @@ class DockerMixin:
 
     __abstract__ = True
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    docker_id: Mapped[str] = mapped_column()
+    docker_id: Mapped[str] = mapped_column(default="")
     name: Mapped[str] = mapped_column()
     client: DockerClient = docker_client
     kwargs: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -77,7 +76,7 @@ class DockerContainerMixin(DockerMixin):
     __abstract__ = True
 
     image: Mapped[str] = mapped_column(default=constants.IMAGE_BASE)
-    environment: Mapped[str] = mapped_column(JSONType, nullable=True)
+    environment: Mapped[str] = mapped_column(JSON, nullable=True)
     command: Mapped[str] = mapped_column(ScalarListType, nullable=True)
     detach: Mapped[bool] = mapped_column(default=True)
     tty: Mapped[bool] = mapped_column(default=True)
@@ -117,9 +116,7 @@ class Network(DockerMixin, Base):
     name: Mapped[str] = mapped_column()
     driver: Mapped[str] = mapped_column(default="bridge")
     attachable: Mapped[bool] = mapped_column(default=True)
-    interfaces: Mapped[list["Interface"]] = relationship(
-        back_populates="network", cascade="all, delete-orphan"
-    )
+    interfaces: Mapped[list["Interface"]] = relationship(back_populates="network", cascade="all, delete-orphan")
     _ipaddress = mapped_column("ipaddress", String)
     _router_gateway = mapped_column("router_gateway", String)
     infrastructure_id: Mapped[int] = mapped_column(ForeignKey("infrastructure.id"))
@@ -190,9 +187,7 @@ class Interface(Base):
     network: Mapped["Network"] = relationship(back_populates="interfaces")
     _ipaddress = mapped_column("ipaddress", String)
     appliance: Mapped["Appliance"] = relationship(back_populates="interfaces")
-    appliance_id: Mapped[int] = mapped_column(
-        ForeignKey("appliance.id"), primary_key=True
-    )
+    appliance_id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
 
     @property
     def ipaddress(self):
@@ -211,12 +206,9 @@ class Appliance(DockerContainerMixin, Base):
     __tablename__ = "appliance"
 
     _cap_add = mapped_column("cap_add", String, default="NET_ADMIN")
-    interfaces: Mapped[list["Interface"]] = relationship(
-        back_populates="appliance", cascade="all, delete-orphan"
-    )
+    interfaces: Mapped[list["Interface"]] = relationship(back_populates="appliance", cascade="all, delete-orphan")
     type: Mapped[str]
     infrastructure_id: Mapped[int] = mapped_column(ForeignKey("infrastructure.id"))
-    infrastructure: Mapped["Infrastructure"] = relationship(back_populates="appliances")
 
     __mapper_args__ = {
         "polymorphic_on": "type",
@@ -287,7 +279,7 @@ class Appliance(DockerContainerMixin, Base):
         )["Id"]
 
     @abstractmethod
-    async def configure(self):
+    async def configure(self, *args):
         pass
 
     async def start(self):
@@ -309,14 +301,14 @@ class Infrastructure(Base):
 
     __tablename__ = "infrastructure"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column()
-    networks: Mapped[list["Network"]] = relationship(
+    networks: Mapped[list["Network"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
+    routers: Mapped[list["Router"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
+    nodes: Mapped[list["Node", "Attacker"]] = relationship(
         back_populates="infrastructure", cascade="all, delete-orphan"
     )
-    appliances: Mapped[list["Appliance"]] = relationship(
-        back_populates="infrastructure", cascade="all, delete-orphan"
-    )
+    instance_id: Mapped[int] = mapped_column(ForeignKey("instance.id"))
+    instance: Mapped["Instance"] = relationship(back_populates="infrastructure")
 
 
 class Router(Appliance):
@@ -327,24 +319,23 @@ class Router(Appliance):
     __tablename__ = "router"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
-    firewall_rules: Mapped[list["FirewallRule"]] = relationship(
-        back_populates="router", cascade="all, delete-orphan"
-    )
+    firewall_rules: Mapped[list["FirewallRule"]] = relationship(back_populates="router", cascade="all, delete-orphan")
     router_type: Mapped[str] = mapped_column(nullable=True)
+    infrastructure: Mapped["Infrastructure"] = relationship(back_populates="routers")
 
     __mapper_args__ = {
         "polymorphic_identity": "router",
     }
 
     # TODO: refactor taking gateway from connections in cyst_infrastructure
-    async def configure(self):
+    async def configure(self, routers: list[Router]):
         """
         Configure ip routes, iptables on a router based on its type.
         :return:
         """
         config_instructions = ["ip route del default"]
-
-        await self._setup_interfaces(config_instructions)
+        await self._setup_routes(routers, config_instructions)
+        await self._setup_default_gateway(config_instructions)
         await self._setup_firewall(config_instructions)
 
         container = await self.get()
@@ -352,29 +343,9 @@ class Router(Appliance):
         for instruction in config_instructions:
             await asyncio.to_thread(container.exec_run, instruction)  # type: ignore
 
-    async def _setup_interfaces(self, config_instructions: list[str]):
+    async def _setup_default_gateway(self, config_instructions: list[str]):
         for interface in self.interfaces:
             if interface.network.network_type == constants.NETWORK_TYPE_MANAGEMENT:
-                management_network = interface.network
-                # TODO: find a better way to configure perimeter router
-                # find all internal networks and add routes to them from perimeter router
-                for management_interface in management_network.interfaces:
-                    if (
-                        management_interface.appliance.router_type
-                        == constants.ROUTER_TYPE_INTERNAL
-                    ):
-                        for (
-                            router_interface
-                        ) in management_interface.appliance.interfaces:
-                            if (
-                                router_interface.network.network_type
-                                == constants.NETWORK_TYPE_INTERNAL
-                            ):
-                                config_instructions.append(
-                                    f"ip route add {router_interface.network.ipaddress } via "
-                                    f"{management_interface.ipaddress}"
-                                )
-
                 if self.router_type == constants.ROUTER_TYPE_PERIMETER:
                     config_instructions += [
                         f"ip route add default via {interface.network.bridge_gateway}",
@@ -383,9 +354,7 @@ class Router(Appliance):
                     ]
 
                 else:
-                    config_instructions.append(
-                        f"ip route add default via {interface.network.router_gateway}"
-                    )
+                    config_instructions.append(f"ip route add default via {interface.network.router_gateway}")
 
     async def _setup_firewall(self, config_instructions: list[str]):
         for fw_rule in self.firewall_rules:
@@ -396,6 +365,23 @@ class Router(Appliance):
                     f"iptables -A FORWARD -s {fw_rule.src_net.ipaddress} -d {fw_rule.dst_net.ipaddress} -j DROP",
                 ]
 
+    async def _setup_routes(self, routers: list[Router], config_instructions):
+        routes_config = []
+        for router in routers:
+            if self == router:
+                continue
+            routes = {"via": "", "to": []}
+            for interface in router.interfaces:
+                if interface.network.network_type == constants.NETWORK_TYPE_MANAGEMENT:
+                    routes["via"] = interface.ipaddress
+                else:
+                    routes["to"].append(interface.network.ipaddress)
+            routes_config.append(routes)
+
+        for route_config in routes_config:
+            for network_route in route_config["to"]:
+                config_instructions.append(f"ip route add {network_route} via {route_config['via']}")
+
     async def connect_to_networks(self):
         """
         Connect docker container representing a Router to other docker networks, where they will act as a
@@ -403,9 +389,7 @@ class Router(Appliance):
         :return:
         """
         for interface in self.interfaces[1:]:
-            (await interface.network.get()).connect(
-                self.name, ipv4_address=str(interface.ipaddress)
-            )
+            (await interface.network.get()).connect(self.name, ipv4_address=str(interface.ipaddress))
 
     async def start(self):
         """
@@ -443,10 +427,9 @@ class Node(Appliance):
     __tablename__ = "node"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
-    services: Mapped[list["Service"]] = relationship(
-        back_populates="parent_node", cascade="all, delete-orphan"
-    )
+    services: Mapped[list["Service"]] = relationship(back_populates="parent_node", cascade="all, delete-orphan")
     ipc_mode: Mapped[str] = mapped_column(default="shareable", nullable=True)
+    infrastructure: Mapped["Infrastructure"] = relationship(back_populates="nodes")
 
     __mapper_args__ = {
         "polymorphic_identity": "node",
@@ -577,14 +560,6 @@ class Service(DockerContainerMixin, Base):
         :return:
         """
         kwargs = self.kwargs if self.kwargs is not None else {}
-        environment = (
-            envs if (envs := constants.envs.get(self.name) is not None) else {}
-        )
-        command = (
-            container[constants.COMMAND]
-            if (container := constants.TESTBED_INFO.get(self.name))
-            else None
-        )
 
         container = await asyncio.to_thread(
             self.client.containers.create,
@@ -610,3 +585,43 @@ class Service(DockerContainerMixin, Base):
         """
         container = await self.get()
         await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
+
+
+agent_association_table = Table(
+    "agent_association_table",
+    Base.metadata,
+    Column("agent_id", ForeignKey("agent.id")),
+    Column("run_id", ForeignKey("run.id")),
+)
+
+
+class Agent(Base):
+    __tablename__ = "agent"
+    name: Mapped[str] = mapped_column()
+    role: Mapped[str] = mapped_column()  # Defender or Attacker
+    gitlab_url: Mapped[str] = mapped_column()
+    runs: Mapped[list["Run"]] = relationship(secondary=agent_association_table, back_populates="agents")
+
+
+class Template(Base):
+    __tablename__ = "template"
+    name: Mapped[str] = mapped_column()
+    description: Mapped[dict] = mapped_column(JSON)
+    runs: Mapped[list["Run"]] = relationship(back_populates="template")
+
+
+class Run(Base):
+    __tablename__ = "run"
+    name: Mapped[str] = mapped_column()
+    agents: Mapped[list["Agent"]] = relationship(secondary=agent_association_table, back_populates="runs")
+    template: Mapped["Template"] = relationship(back_populates="runs")
+    template_id: Mapped[int] = mapped_column(ForeignKey("template.id"))
+    instances: Mapped[list["Instance"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+
+
+class Instance(Base):
+    __tablename__ = "instance"
+    run_id: Mapped[int] = mapped_column(ForeignKey("run.id"))
+    run: Mapped["Run"] = relationship(back_populates="instances")
+    agent_instances: Mapped[str] = mapped_column()
+    infrastructure: Mapped["Infrastructure"] = relationship(back_populates="instance")
