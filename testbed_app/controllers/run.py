@@ -1,6 +1,6 @@
 from sqlalchemy import select
 
-from testbed_app.database import session_factory
+from testbed_app.database_config import session_factory
 from testbed_app.models import Run, Agent, Template
 
 

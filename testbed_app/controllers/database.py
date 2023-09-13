@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from testbed_app.database import async_engine
+from testbed_app.database_config import async_engine
 from testbed_app.models import Base
 
 

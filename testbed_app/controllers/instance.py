@@ -15,9 +15,8 @@ from testbed_app.models import (
     Router,
     Infrastructure,
     Interface,
-    Attacker,
 )
-from testbed_app.database import session_factory
+from testbed_app.database_config import session_factory
 from testbed_app.controllers import router as router_controller
 
 

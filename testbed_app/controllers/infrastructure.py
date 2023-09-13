@@ -6,7 +6,7 @@ import randomname
 from sqlalchemy.orm import joinedload
 
 from docker_testbed.util import util, constants
-from testbed_app.database import session_factory
+from testbed_app.database_config import session_factory
 
 from testbed_app.models import Infrastructure, Network, Interface
 from sqlalchemy import select
