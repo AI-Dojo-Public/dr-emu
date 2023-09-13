@@ -24,21 +24,3 @@ async_engine = create_async_engine(
 )
 
 session_factory = async_sessionmaker(async_engine, expire_on_commit=False)
-
-
-async def create_db():
-    """
-    Create database tables
-    :return: None
-    """
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-
-async def destroy_db():
-    """
-    Drop database tables
-    :return:
-    """
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)

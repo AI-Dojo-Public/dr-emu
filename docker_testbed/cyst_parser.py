@@ -1,11 +1,11 @@
-from typing import Optional
-
 import randomname
 from docker import DockerClient
 
 from netaddr import IPNetwork
 
-from cyst_infrastructure import RouterConfig, NodeConfig, scripted_attacker
+from cyst.api.configuration.network.router import RouterConfig
+from cyst.api.configuration.network.node import NodeConfig
+
 
 from testbed_app.models import (
     Network,
@@ -25,7 +25,8 @@ class CYSTParser:
         self.router_image = constants.IMAGE_ROUTER
         self.networks: list[Network] = []
         self.routers: list[Router] = []
-        self.nodes: list[Node, Attacker] = []
+        self.attacker: Attacker
+        self.nodes: list[Node] = []
         self.images: set = set()
 
     # TODO
@@ -67,18 +68,16 @@ class CYSTParser:
             for interface in cyst_router.interfaces:
                 if not any(interface.net == n.ipaddress for n in self.networks):
                     while (
-                        network_name := randomname.get_name(
-                            adj="colors", noun="astronomy", sep="_"
-                        )
+                        network_name := randomname.get_name(adj="colors", noun="astronomy", sep="_")
                     ) in generated_names:
                         continue
 
                     generated_names.add(network_name)
 
                     network_type = (
-                        constants.NETWORK_TYPE_INTERNAL
-                        if interface.ip != scripted_attacker.interfaces[0].ip
-                        else constants.NETWORK_TYPE_PUBLIC
+                        constants.NETWORK_TYPE_PUBLIC
+                        if cyst_router.id == "perimeter_router"
+                        else constants.NETWORK_TYPE_INTERNAL
                     )
                     network = Network(
                         ipaddress=interface.net,
@@ -88,9 +87,10 @@ class CYSTParser:
                     )
                     self.networks.append(network)
 
-    async def parse_nodes(self, cyst_nodes):
+    async def parse_nodes(self, cyst_nodes, attacker):
         """
         Create node models from cyst infrastructure prescription.
+        :param attacker: node representing the attacker
         :param cyst_nodes: node objects from cyst infrastructure
         :return:
         """
@@ -107,25 +107,16 @@ class CYSTParser:
 
             node_image = (
                 specified_image
-                if (specified_image := constants.TESTBED_IMAGES.get(cyst_node.id))
-                is not None
+                if (specified_image := constants.TESTBED_IMAGES.get(cyst_node.id)) is not None
                 else constants.IMAGE_NODE
             )
 
-            services = await self.parse_services(
-                cyst_node.active_services + cyst_node.passive_services
-            )
+            services = await self.parse_services(cyst_node.active_services + cyst_node.passive_services)
 
-            environment = (
-                envs if (envs := constants.envs.get(cyst_node.id)) is not None else {}
-            )
-            command = (
-                container[constants.COMMAND]
-                if (container := constants.TESTBED_INFO.get(cyst_node.id))
-                else []
-            )
+            environment = envs if (envs := constants.envs.get(cyst_node.id)) is not None else {}
+            command = container[constants.COMMAND] if (container := constants.TESTBED_INFO.get(cyst_node.id)) else []
 
-            if cyst_node.id == "attacker_node":
+            if cyst_node == attacker:
                 node = Attacker(
                     name=cyst_node.id,
                     interfaces=interfaces,
@@ -157,22 +148,13 @@ class CYSTParser:
         for cyst_service in node_services:
             service_image = (
                 specified_image
-                if (specified_image := constants.TESTBED_IMAGES.get(cyst_service.id))
-                is not None
+                if (specified_image := constants.TESTBED_IMAGES.get(cyst_service.id)) is not None
                 else constants.IMAGE_NODE
             )
 
             configuration = await self.get_service_configuration(cyst_service.id)
-            environment = (
-                envs
-                if (envs := constants.envs.get(cyst_service.id)) is not None
-                else {}
-            )
-            command = (
-                container[constants.COMMAND]
-                if (container := constants.TESTBED_INFO.get(cyst_service.id))
-                else []
-            )
+            environment = envs if (envs := constants.envs.get(cyst_service.id)) is not None else {}
+            command = container[constants.COMMAND] if (container := constants.TESTBED_INFO.get(cyst_service.id)) else []
 
             service = Service(
                 name=cyst_service.id,
@@ -197,13 +179,9 @@ class CYSTParser:
 
             for interface in cyst_router.interfaces:
                 network = await self.find_network(interface.net)
-                interfaces.append(
-                    Interface(ipaddress=network.router_gateway, network=network)
-                )
+                interfaces.append(Interface(ipaddress=network.router_gateway, network=network))
 
-            router_type = (
-                "perimeter" if cyst_router.id == "perimeter_router" else "internal"
-            )
+            router_type = "perimeter" if cyst_router.id == "perimeter_router" else "internal"
 
             # TODO: Better FirewallRule extraction if there will different cyst configuration
             for firewall_rule in cyst_router.traffic_processors[0].chains[0].rules:
@@ -227,16 +205,15 @@ class CYSTParser:
             )
             self.routers.append(router)
 
-    async def parse(
-        self, cyst_routers: list[RouterConfig], cyst_nodes: list[NodeConfig]
-    ):
+    async def parse(self, cyst_routers: list[RouterConfig], cyst_nodes: list[NodeConfig], attacker: NodeConfig):
         """
         Create all necessary models for infrastructure based on parsed objects from cyst prescription.
+        :param attacker: node representing the attacker
         :param cyst_routers: router objects from cyst infrastructure
         :param cyst_nodes: node objects from cyst infrastructure
         :return:
         """
         await self.parse_networks(cyst_routers)
         await self.parse_routers(cyst_routers)
-        await self.parse_nodes(cyst_nodes)
+        await self.parse_nodes(cyst_nodes, attacker)
         await self.parse_images()
