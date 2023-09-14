@@ -16,6 +16,7 @@ from testbed_app.models import (
     Infrastructure,
     Interface,
 )
+from testbed_app.lib.logger import logger
 from testbed_app.database_config import session_factory
 from testbed_app.controllers import router as router_controller
 
@@ -41,15 +42,16 @@ class InstanceController:
         Executes all necessary functions for building an infrastructure and saves created models to the database.
         :return:
         """
-        print(f"Starting infrastructure with name: {self.infrastructure.name}")
+        logger.info("Starting infrastructure", name=self.infrastructure.name)
 
         try:
             create_network_tasks = await self.create_networks()
             await asyncio.gather(*create_network_tasks)
+            logger.debug("Networks created", infrastructure_id=self.infrastructure.id)
 
             start_router_tasks = await self.start_routers()
             start_node_tasks = await self.start_nodes()
-
+            logger.debug("Appliances started", infrastructure_id=self.infrastructure.id)
             await asyncio.gather(*start_node_tasks, *start_router_tasks)
 
             configure_appliance_tasks = await self.configure_appliances()
@@ -58,13 +60,14 @@ class InstanceController:
             await self.stop(check_id=True)
             raise ex
 
-        print(f"Created infrastructure with id: {self.infrastructure.id}, name: {self.infrastructure.name}")
+        logger.info("Created infrastructure", id=self.infrastructure.id, name=self.infrastructure.name)
 
     async def create_networks(self) -> set[asyncio.Task]:
         """
         Creates async tasks for creating networks.
         :return: set of tasks for network creation
         """
+        logger.debug("Creating networks", infrastructure_id=self.infrastructure.id)
         return {asyncio.create_task(network.create()) for network in self.infrastructure.networks}
 
     async def start_routers(self) -> set[asyncio.Task]:
@@ -72,6 +75,7 @@ class InstanceController:
         Creates async tasks for creating and starting routers.
         :return: set of tasks to start router containers
         """
+        logger.debug("Starting routers", infrastructure_id=self.infrastructure.id)
         return {asyncio.create_task(router.start()) for router in self.infrastructure.routers}
 
     async def start_nodes(self) -> set[asyncio.Task]:
@@ -79,6 +83,7 @@ class InstanceController:
         Creates async tasks for creating and starting nodes.
         :return: set of tasks to start node containers
         """
+        logger.debug("Starting nodes", infrastructure_id=self.infrastructure.id)
         return {asyncio.create_task(node.start()) for node in self.infrastructure.nodes}
 
     async def configure_appliances(self):
@@ -86,12 +91,15 @@ class InstanceController:
         Create async tasks for configuring iptables and ip routes in Nodes and Routers.
         :return:
         """
+        logger.debug("Configuring appliances", infrastructure_id=self.infrastructure.id)
         node_configure_tasks = {asyncio.create_task(node.configure()) for node in self.infrastructure.nodes}
 
         routers = await router_controller.get_infra_routers(self.infrastructure.id)
         router_configure_tasks = {
             asyncio.create_task(router.configure(routers)) for router in self.infrastructure.routers
         }
+
+        logger.debug("Appliances configured", infrastructure_id=self.infrastructure.id)
         return node_configure_tasks.union(router_configure_tasks)
 
     async def stop(self, check_id: bool = False):
@@ -100,12 +108,19 @@ class InstanceController:
         :param check_id:
         :return:
         """
-        print("stopping infrastructure")
+        logger.debug("Stopping infrastructure", name=self.infrastructure.name, id=self.infrastructure.id)
         stop_container_tasks = (await self.delete_nodes(check_id)).union(await self.delete_routers(check_id))
         await asyncio.gather(*stop_container_tasks)
+        logger.debug(
+            "Appliances deleted", infrastructure_name=self.infrastructure.name, infrastructure_id=self.infrastructure.id
+        )
 
         delete_network_tasks = await self.delete_networks(check_id)
         await asyncio.gather(*delete_network_tasks)
+        logger.debug(
+            "Networks deleted", infrastructure_name=self.infrastructure.name, infrastructure_id=self.infrastructure.id
+        )
+        logger.debug("Infrastructure stopped", name=self.infrastructure.name, id=self.infrastructure.id)
 
     async def delete_networks(self, check_id: bool) -> set[asyncio.Task]:
         """
@@ -113,6 +128,9 @@ class InstanceController:
         :param check_id:
         :return: set of tasks for networks deletion
         """
+        logger.debug(
+            "Deleting networks", infrastructure_name=self.infrastructure.name, infrastructure_id=self.infrastructure.id
+        )
         network_tasks = set()
         for network in self.infrastructure.networks:
             if not check_id or (check_id and network.docker_id != ""):
@@ -125,6 +143,9 @@ class InstanceController:
         :param check_id:
         :return: set of tasks for deletion of routers
         """
+        logger.debug(
+            "Deleting routers", infrastructure_name=self.infrastructure.name, infrastructure_id=self.infrastructure.id
+        )
         router_tasks = set()
         for router in self.infrastructure.routers:
             if not check_id or (check_id and router.docker_id != ""):
@@ -137,6 +158,9 @@ class InstanceController:
         :param check_id:
         :return: set of tasks for deletion of nodes
         """
+        logger.debug(
+            "Deleting nodes", infrastructure_name=self.infrastructure.name, infrastructure_id=self.infrastructure.id
+        )
         node_tasks = set()
         for node in self.infrastructure.nodes:
             if not check_id or (check_id and node.docker_id != ""):
@@ -148,6 +172,7 @@ class InstanceController:
         Delete infrastructure and all models belonging to it (cascade deletion) from db.
         :return:
         """
+        logger.debug("Deleting infrastructure", name=self.infrastructure.name, id=self.infrastructure.id)
         async with session_factory() as session:
             await session.delete(self.infrastructure)
             await session.commit()
@@ -158,6 +183,8 @@ class InstanceController:
         :param available_networks: available ip addresses for networks
         :return:
         """
+        logger.debug("Changing IP adresses", name=self.infrastructure.name, id=self.infrastructure.id)
+
         for network, available_network in zip(self.infrastructure.networks, available_networks):
             network.ipaddress = available_network
 
@@ -252,6 +279,11 @@ class InstanceController:
         :param docker_client: client for docker rest api
         :return: Controller with prepared object for building a new infrastructure
         """
+        logger.debug(
+            "Preparing InfrastructureController",
+            infrastructure_name=infrastructure.name,
+            infrastructure_id=infrastructure.id,
+        )
 
         controller = InstanceController(docker_client, images, infrastructure)
 
@@ -286,6 +318,11 @@ class InstanceController:
         ]:
             await asyncio.gather(
                 controller.change_ipadresses(available_networks),
+            )
+            logger.debug(
+                "IP addresses changed for new infrastructure",
+                infrastructure_name=infrastructure.name,
+                infrastructure_id=infrastructure.id,
             )
 
         return controller

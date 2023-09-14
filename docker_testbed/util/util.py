@@ -3,14 +3,13 @@ from docker import DockerClient
 import docker.errors
 from netaddr import IPNetwork, IPAddress
 
+from testbed_app.lib.logger import logger
 from testbed_app.models import Network
 from cyst_infrastructure import RouterConfig, NodeConfig
 
 
 # Unused function for rewriting ip addresses based on user input prefix
-def change_ipadresses(
-    nodes: list[NodeConfig], routers: list[RouterConfig], ip_prefix: str
-):
+def change_ipadresses(nodes: list[NodeConfig], routers: list[RouterConfig], ip_prefix: str):
     for appliance in [*routers, *nodes]:
         for interface in appliance.interfaces:
             new_ip = rewrite_ipaddress_with_prefix(str(interface.ip), ip_prefix)
@@ -33,16 +32,12 @@ def rewrite_ipaddress_with_prefix(old_ip: str, new_ip_prefix: str):
         elif len(prefix_octate) > 1:
             if len(prefix_octate) != len(ip_octate):
                 print(prefix_octate, ip_octate)
-                raise RuntimeError(
-                    "Format of specified ip prefix doesn't match the format of original ip addresses"
-                )
+                raise RuntimeError("Format of specified ip prefix doesn't match the format of original ip addresses")
             for ip_digit, prefix_digit in zip(ip_octate, prefix_octate):
                 if prefix_digit == "x":
                     digit_index = prefix_octate.index(prefix_digit)
                     prefix_octate = (
-                        prefix_octate[0:digit_index]
-                        + ip_octate[digit_index]
-                        + prefix_octate[digit_index + 1 :]
+                        prefix_octate[0:digit_index] + ip_octate[digit_index] + prefix_octate[digit_index + 1 :]
                     )
                     new_ip_octate_list[octate_index] = prefix_octate
 
@@ -50,9 +45,7 @@ def rewrite_ipaddress_with_prefix(old_ip: str, new_ip_prefix: str):
 
 
 # Unused function for rewriting ip addresses based on user input prefix
-async def check_used_ipaddreses(
-    docker_client: DockerClient, parsed_networks: list[Network]
-):
+async def check_used_ipaddreses(docker_client: DockerClient, parsed_networks: list[Network]):
     """
     Check already used network ip spaces.
     :param docker_client: client for docker rest api
@@ -64,9 +57,7 @@ async def check_used_ipaddreses(
         if docker_network.name in ["none", "host"]:
             continue
 
-        network_ip = docker_client.networks.get(docker_network.id).attrs["IPAM"][
-            "Config"
-        ][0]["Subnet"]
+        network_ip = docker_client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"]
         for parsed_network in parsed_networks:
             if str(parsed_network.ipaddress) == network_ip:
                 raise Exception(f"Network with ip address {network_ip} already exists")
@@ -78,10 +69,12 @@ async def get_container_names(docker_client: DockerClient) -> set[str]:
     :param docker_client: client for docker rest api
     :return: sets of used docker names
     """
+    logger.debug("Getting docker container names")
     docker_container_names = []
     for container in await asyncio.to_thread(docker_client.containers.list, all=True):
         docker_container_names.append(container.name)
 
+    logger.debug("Completed Getting docker container names")
     return set(docker_container_names)
 
 
@@ -91,12 +84,13 @@ async def get_network_names(docker_client: DockerClient) -> set[str]:
     :param docker_client: client for docker rest api
     :return: sets of used docker names
     """
-
+    logger.debug("Getting docker network names")
     docker_network_names = []
 
     for network in await asyncio.to_thread(docker_client.networks.list):
         docker_network_names.append(network.name)
 
+    logger.debug("Completed Getting docker network names")
     return set(docker_network_names)
 
 
@@ -112,27 +106,20 @@ async def get_available_networks(
     :param parsed_networks: Network objects parsed from cyst infrastructure
     :return: list of available Networks, that can be used during infrastructure building.
     """
+    logger.debug("Getting available IP addressed for networks")
     used_networks = set()
     docker_networks = await asyncio.to_thread(docker_client.networks.list)
     for docker_network in docker_networks:
         if docker_network.name in ["none", "host"]:
             continue
 
-        used_networks.add(
-            IPNetwork(
-                docker_client.networks.get(docker_network.id).attrs["IPAM"]["Config"][
-                    0
-                ]["Subnet"]
-            )
-        )
+        used_networks.add(IPNetwork(docker_client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"]))
 
     default_infra_ipspace = False
     default_networks_ips = {network.ipaddress for network in parsed_networks}
     if default_networks_ips.difference(used_networks) == default_networks_ips:
         default_infra_ipspace = True
-    number_of_returned_subnets = (
-        (1+len(parsed_networks))*number_of_infrastructures
-    )
+    number_of_returned_subnets = (1 + len(parsed_networks)) * number_of_infrastructures
 
     # TODO: what if I run out of ip address space?
     supernet = IPNetwork("192.168.0.0/16")  # Rework as a user input in the future
@@ -145,6 +132,7 @@ async def get_available_networks(
         if len(available_subnets) == number_of_returned_subnets:
             break
 
+    logger.debug("Completed getting available IP addressed for networks", available_subnets=available_subnets)
     return available_subnets
 
 
@@ -154,17 +142,15 @@ async def pull_images(docker_client, images):
     :return:
     """
     pull_image_tasks = set()
-
+    logger.debug(f"Pulling docker images")
     for image in images:
         try:
             await asyncio.to_thread(docker_client.images.get, image)
         except docker.errors.ImageNotFound:
-            print(f"pulling image: {image}")
-            pull_image_tasks.add(
-                asyncio.create_task(
-                    asyncio.to_thread(docker_client.images.pull, image)
-                )
-            )
+            logger.info(f"pulling image", image=image)
+            pull_image_tasks.add(asyncio.create_task(asyncio.to_thread(docker_client.images.pull, image)))
 
     if pull_image_tasks:
         await asyncio.gather(*pull_image_tasks)
+
+    logger.info("Completed pulling docker images")

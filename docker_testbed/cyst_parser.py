@@ -3,6 +3,7 @@ from docker import DockerClient
 
 from netaddr import IPNetwork
 
+from testbed_app.lib.logger import logger
 from cyst.api.configuration.network.router import RouterConfig
 from cyst.api.configuration.network.node import NodeConfig
 
@@ -213,7 +214,9 @@ class CYSTParser:
         :param cyst_nodes: node objects from cyst infrastructure
         :return:
         """
+        logger.debug("Parsing cyst infrastructure description")
         await self.parse_networks(cyst_routers)
         await self.parse_routers(cyst_routers)
         await self.parse_nodes(cyst_nodes, attacker)
         await self.parse_images()
+        logger.info("Completed parsing cyst infrastructure description")

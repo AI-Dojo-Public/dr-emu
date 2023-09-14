@@ -7,7 +7,7 @@ from sqlalchemy.orm import joinedload
 
 from docker_testbed.util import util, constants
 from testbed_app.database_config import session_factory
-
+from testbed_app.lib.logger import logger
 from testbed_app.models import Infrastructure, Network, Interface
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
@@ -21,14 +21,15 @@ from cyst_infrastructure import nodes as cyst_nodes, routers as cyst_routers, at
 
 async def build_infras(number_of_infrastructures: int):
     """
-    responses:
-      200:
-        description: Builds docker infrastructure
+    Builds docker infrastructure
+    :param number_of_infrastructures: Number of infrastructures to build
+    :return:
     """
-
+    logger.info("Building infrastructures")
     docker_client = docker.from_env()
     controller_start_tasks = set()
     available_networks = []
+
     docker_container_names = await util.get_container_names(docker_client)
     docker_network_names = await util.get_network_names(docker_client)
     await util.pull_images(docker_client, images=set(constants.IMAGE_LIST))
@@ -83,24 +84,25 @@ async def build_infras(number_of_infrastructures: int):
 
 async def destroy_infra(infrastructure_id: int) -> dict:
     """
-    responses:
-      200:
-        description: Destroys docker infrastructure
+    Destroys docker infrastructure.
+    :param infrastructure_id: Infrastructure id
+    :return:
     """
     try:
         controller = await InstanceController.get_controller_with_infra_objects(infrastructure_id)
     except NoResultFound:
         return {"message": f"Infrastructure with id: {infrastructure_id} doesn't exist"}
 
-    print(f"Deleting infrastructure with id: {controller.infrastructure.id}, name: {controller.infrastructure.name}.")
+    logger.debug("Deleting Infrastructure", id=controller.infrastructure.id, name=controller.infrastructure.name)
     # destroy docker objects
     await controller.stop(check_id=True)
     # delete objects from db
     await controller.delete_infrastructure()
-    print(f"Infrastructure with id: {controller.infrastructure.id}, name: {controller.infrastructure.name} deleted.")
+    logger.info("Infrastructure deleted", id=controller.infrastructure.id, name=controller.infrastructure.name)
 
 
 async def get_infra_ids() -> list[int]:
+    logger.debug("Pulling infrastructure IDS")
     async with session_factory() as session:
         return (await session.scalars(select(Infrastructure.id))).all()
 
@@ -108,9 +110,11 @@ async def get_infra_ids() -> list[int]:
 async def get_infra(infrastructure_id: int) -> Union[dict, str]:
     """
     Parse info about infrastructure specified by ID.
-    :param infrastructure_id: infrastructuer ID
+    :param infrastructure_id: infrastructure ID
     :return: infrastructure description
     """
+    logger.debug("Getting infrastructure info", id=infrastructure_id)
+
     try:
         async with session_factory() as session:
             infrastructure = (
