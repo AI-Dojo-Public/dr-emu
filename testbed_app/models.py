@@ -20,6 +20,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy_utils import force_instant_defaults, ScalarListType
 
+from testbed_app.lib.logger import logger
 from testbed_app.resources import docker_client
 from docker_testbed.util import constants
 
@@ -28,7 +29,7 @@ force_instant_defaults()
 
 
 class Base(AsyncAttrs, DeclarativeBase):
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
 
 class DockerMixin:
@@ -158,6 +159,7 @@ class Network(DockerMixin, Base):
         ipam_pool = IPAMPool(subnet=self._ipaddress, gateway=self.bridge_gateway)
         ipam_config = IPAMConfig(pool_configs=[ipam_pool])
 
+        logger.debug("Creating network", ip=self._ipaddress, name=self.name)
         self.docker_id = (
             await asyncio.to_thread(
                 self.client.networks.create,
@@ -167,6 +169,7 @@ class Network(DockerMixin, Base):
                 attachable=self.attachable,
             )
         ).id
+        logger.debug("Network created", ip=self._ipaddress, name=self.name)
 
     async def delete(self):
         """
@@ -308,7 +311,7 @@ class Infrastructure(Base):
         back_populates="infrastructure", cascade="all, delete-orphan"
     )
     instance_id: Mapped[int] = mapped_column(ForeignKey("instance.id"))
-    instance: Mapped["Instance"] = relationship(back_populates="infrastructure")
+    instance: Mapped["Instance"] = relationship(back_populates="infrastructure", single_parent=True)
 
 
 class Router(Appliance):
@@ -624,4 +627,6 @@ class Instance(Base):
     run_id: Mapped[int] = mapped_column(ForeignKey("run.id"))
     run: Mapped["Run"] = relationship(back_populates="instances")
     agent_instances: Mapped[str] = mapped_column()
-    infrastructure: Mapped["Infrastructure"] = relationship(back_populates="instance")
+    infrastructure: Mapped["Infrastructure"] = relationship(
+        back_populates="instance", uselist=False, cascade="all, delete, delete-orphan"
+    )

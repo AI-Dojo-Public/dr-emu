@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
 
 from testbed_app.database_config import session_factory
 from testbed_app.lib.logger import logger
@@ -39,6 +40,7 @@ async def delete_template(template_id: int) -> Template:
     Delete Template specified by ID from DB.
     :param template_id: Template ID
     :return: deleted Template object.
+    :raises: sqlalchemy.exc.NoResultFound
     """
     logger.debug("Deleting template", id=template_id)
     async with session_factory() as session:

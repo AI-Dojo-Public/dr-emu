@@ -1,10 +1,22 @@
+import asyncio
+
+from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
+
 from cli import UTyper
 import typer
 from typing_extensions import Annotated
 from typing import List
 
+from testbed_app.database_config import session_factory
 from testbed_app.controllers import run as run_controller
+from testbed_app.controllers.infrastructure import InfrastructureController
+from testbed_app.lib.exceptions import NoAgents
 
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich import print
+
+from testbed_app.models import Run, Instance, Infrastructure, Node, Network
 
 run_typer = UTyper()
 
@@ -15,7 +27,7 @@ async def create_run(
         str,
         typer.Argument(help="Name of the Run"),
     ],
-    prefab_id: Annotated[
+    template_id: Annotated[
         int,
         typer.Argument(help="ID of the created infrastructure description"),
     ],
@@ -26,18 +38,21 @@ async def create_run(
 ):
     """
     Create Run.
-    :return:
     """
-    run = await run_controller.create_run(name=name, agent_ids=agent_ids, template_id=prefab_id)
-
-    print(f"Run with name: {run.name} and id: {run.id} has been created")
+    try:
+        run = await run_controller.create_run(name=name, agent_ids=agent_ids, template_id=template_id)
+    except NoAgents:
+        print(f"[bold red]No agent exists with the given IDs {agent_ids}![/bold red]")
+    except NoResultFound:
+        print(f"[bold red]Template with ID {template_id} doesn't exist![/bold red]")
+    else:
+        print(f"[bold green]Run with name: {run.name} and id: {run.id} has been created[/bold green]")
 
 
 @run_typer.command("list")
 async def list_runs():
     """
     List all Runs.
-    :return:
     """
     runs = await run_controller.list_runs()
 
@@ -47,7 +62,7 @@ async def list_runs():
                 f"name: {run.name}, id: {run.id}, template_id: {run.template_id}",
             )
     else:
-        print("No runs have been created yet")
+        print("[bold red]No runs have been created yet[/bold red]")
 
 
 @run_typer.command("delete")
@@ -61,4 +76,57 @@ async def delete_run(
     Delete Run based on the provided ID.
     """
     run = await run_controller.delete_runs(run_id)
-    print(f"Run with name: {run.name} and id: {run.id} has been deleted")
+    print(f"[bold green]Run with name: {run.name} and id: {run.id} has been deleted[/bold green]")
+
+
+@run_typer.command("start")
+async def start_run(
+    run_id: Annotated[
+        int,
+        typer.Argument(help="Id of Run that should be started"),
+    ],
+    number_of_instances: Annotated[
+        int,
+        typer.Argument(help="Number of instances(infrastructures) to run simultaneously"),
+    ],
+):
+    """
+    Start defined number of instances of created Run.
+    """
+
+    async with session_factory() as session:
+        run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) as progress:
+        progress.add_task(description="Building Infrastructures", total=None)
+        await InfrastructureController.build_infras(number_of_instances, run)
+    print(f"[bold green]{number_of_instances} Run instances created[/bold green]")
+
+
+@run_typer.command("stop")
+async def stop_run(
+    run_id: Annotated[
+        int,
+        typer.Argument(help="Id of Run that should be stopped"),
+    ]
+):
+    """
+    Start defined number of instances of created Run.
+    """
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) as progress:
+        progress.add_task(description="Deleting Instances", total=None)
+        try:
+            await run_controller.stop_run(run_id)
+        except NoResultFound:
+            print(f"[bold red]Run with id {run_id} ID doesn't exist![/bold red]")
+        else:
+            print(f"[bold green]All Run instances stopped[/bold green]")
