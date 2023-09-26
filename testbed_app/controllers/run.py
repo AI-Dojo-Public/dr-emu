@@ -1,8 +1,13 @@
+import asyncio
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
+from testbed_app.controllers.infrastructure import InfrastructureController
 from testbed_app.database_config import session_factory
 from testbed_app.lib.logger import logger
-from testbed_app.models import Run, Agent, Template
+from testbed_app.models import Run, Agent, Template, Instance, Infrastructure, Node
+from testbed_app.lib.exceptions import NoAgents
+from testbed_app.controllers import instance as instance_controller
 
 
 async def create_run(name: str, template_id: int, agent_ids: list[int]) -> Run:
@@ -16,6 +21,8 @@ async def create_run(name: str, template_id: int, agent_ids: list[int]) -> Run:
     logger.debug("Creating Run", name=name, template_id=template_id, agent_ids=agent_ids)
     async with session_factory() as session:
         agents = (await session.scalars(select(Agent).where(Agent.id.in_(agent_ids)))).all()
+        if not agents:
+            raise NoAgents()
         template = (await session.execute(select(Template).where(Template.id == template_id))).scalar_one()
 
         run = Run(name=name, template=template, agents=agents)
@@ -52,3 +59,41 @@ async def delete_runs(run_id: int) -> Run:
         await session.commit()
     logger.info("Run deleted", name=run.name, id=run.id)
     return run
+
+
+async def stop_run(run_id: int):
+    """
+    Stop all instances of this Run
+    :param run_id:
+    :return:
+    :raises: sqlalchemy.exc.NoResultFound
+    """
+    async with session_factory() as session:
+        run = (
+            (
+                await session.execute(
+                    select(Run)
+                    .where(Run.id == run_id)
+                    .options(
+                        joinedload(Run.instances)
+                        .subqueryload(Instance.infrastructure)
+                        .options(
+                            joinedload(Infrastructure.routers),
+                            joinedload(Infrastructure.nodes).subqueryload(Node.services),
+                            joinedload(Infrastructure.networks),
+                        )
+                    )
+                )
+            )
+            .unique()
+            .scalar_one()
+        )
+
+        stop_instance_tasks = set()
+
+        for instance in run.instances:
+            stop_instance_tasks.add(InfrastructureController.stop_infra(instance.infrastructure))
+            await session.delete(instance)
+
+        await asyncio.gather(*stop_instance_tasks)
+        await session.commit()

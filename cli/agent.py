@@ -1,3 +1,6 @@
+from sqlalchemy.exc import NoResultFound
+from rich import print
+
 from cli import UTyper
 import typer
 from typing_extensions import Annotated
@@ -53,5 +56,9 @@ async def delete_agent(
     """
     Delete Agent based on the provided ID.
     """
-    agent = await agent_controller.delete_agent(agent_id)
-    print(f"Agent with name: {agent.name} and id: {agent.id} has been deleted")
+    try:
+        agent = await agent_controller.delete_agent(agent_id)
+    except NoResultFound:
+        print("[bold red]Agent with provided ID doesn't exist![/bold red]")
+    else:
+        print(f"Agent with name: {agent.name} and id: {agent.id} has been deleted")

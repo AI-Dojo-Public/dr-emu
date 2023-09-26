@@ -1,3 +1,6 @@
+from sqlalchemy.exc import NoResultFound
+from rich import print
+
 from cli import UTyper
 import typer
 from typing_extensions import Annotated
@@ -51,5 +54,9 @@ async def delete_template(
     """
     Delete Template based on the provided ID.
     """
-    template = await template_controller.delete_template(template_id)
-    print(f"Template with name: {template.name} and id: {template.id} has been deleted")
+    try:
+        template = await template_controller.delete_template(template_id)
+    except NoResultFound:
+        print("[bold red]Template with provided ID doesn't exist![/bold red]")
+    else:
+        print(f"Template with name: {template.name} and id: {template.id} has been deleted")

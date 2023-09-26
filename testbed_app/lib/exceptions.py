@@ -9,3 +9,9 @@ class GitError(Error):
     """
     For Git related errors.
     """
+
+
+class NoAgents(Error):
+    """
+    For no agents in db that meets SELECT requirements.
+    """
