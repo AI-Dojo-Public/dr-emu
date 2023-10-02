@@ -58,7 +58,6 @@ async def delete_agent(
     """
     try:
         agent = await agent_controller.delete_agent(agent_id)
+        print(f"Agent with name: {agent.name} and id: {agent.id} has been deleted")
     except NoResultFound:
         print("[bold red]Agent with provided ID doesn't exist![/bold red]")
-    else:
-        print(f"Agent with name: {agent.name} and id: {agent.id} has been deleted")

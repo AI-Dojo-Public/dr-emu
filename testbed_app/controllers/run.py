@@ -61,6 +61,20 @@ async def delete_runs(run_id: int) -> Run:
     return run
 
 
+async def start_run(run_id: int, number_of_instances: int):
+    """
+    Start number of specified Run instances (infrastructure clones)
+    :param run_id: ID of Run
+    :param number_of_instances: number of instances to start
+    :return:
+    :raises: sqlalchemy.exc.NoResultFound
+    """
+    async with session_factory() as session:
+        run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one()
+
+    await InfrastructureController.build_infras(number_of_instances, run)
+
+
 async def stop_run(run_id: int):
     """
     Stop all instances of this Run
