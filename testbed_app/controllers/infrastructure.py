@@ -434,10 +434,31 @@ class InfrastructureController:
         # await controller.delete_infrastructure()
 
     @staticmethod
-    async def get_infra_ids() -> list[int]:
+    async def delete_infra(infrastructure: Infrastructure):
+        """
+        Destroys docker infrastructure.
+        :param infrastructure: Infrastructure object
+        :return:
+        """
+        controller = InfrastructureController(docker.from_env(), set(), infrastructure)
+
+        # delete objects from db
+        await controller.delete_infrastructure()
+
+    @staticmethod
+    async def list_infrastructures() -> dict[int:str]:
+        """
+        Return names and Ids of all infrastructures in key:value -> id:name format
+        :return:
+        """
         logger.debug("Pulling infrastructure IDS")
+        result = {}
         async with session_factory() as session:
-            return (await session.scalars(select(Infrastructure.id))).all()
+            infrastructures = (await session.scalars(select(Infrastructure))).all()
+
+        for infrastructure in infrastructures:
+            result[infrastructure.id] = infrastructure.name
+        return result
 
     @staticmethod
     async def get_infra_info(infrastructure_id: int) -> Union[dict, str]:

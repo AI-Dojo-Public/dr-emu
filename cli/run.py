@@ -88,23 +88,22 @@ async def start_run(
     number_of_instances: Annotated[
         int,
         typer.Argument(help="Number of instances(infrastructures) to run simultaneously"),
-    ],
+    ] = 1,
 ):
     """
     Start defined number of instances of created Run.
     """
-
-    async with session_factory() as session:
-        run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one()
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        transient=True,
-    ) as progress:
-        progress.add_task(description="Building Infrastructures", total=None)
-        await InfrastructureController.build_infras(number_of_instances, run)
-    print(f"[bold green]{number_of_instances} Run instances created[/bold green]")
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            progress.add_task(description="Building Infrastructures", total=None)
+            await run_controller.start_run(run_id, number_of_instances)
+        print(f"[bold green]{number_of_instances} Run instances created[/bold green]")
+    except NoResultFound:
+        print(f"[bold red]Run with id {run_id} ID doesn't exist![/bold red]")
 
 
 @run_typer.command("stop")
@@ -126,7 +125,6 @@ async def stop_run(
         progress.add_task(description="Deleting Instances", total=None)
         try:
             await run_controller.stop_run(run_id)
+            print(f"[bold green]All Run instances stopped[/bold green]")
         except NoResultFound:
             print(f"[bold red]Run with id {run_id} ID doesn't exist![/bold red]")
-        else:
-            print(f"[bold green]All Run instances stopped[/bold green]")

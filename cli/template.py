@@ -56,7 +56,6 @@ async def delete_template(
     """
     try:
         template = await template_controller.delete_template(template_id)
+        print(f"Template with name: {template.name} and id: {template.id} has been deleted")
     except NoResultFound:
         print("[bold red]Template with provided ID doesn't exist![/bold red]")
-    else:
-        print(f"Template with name: {template.name} and id: {template.id} has been deleted")

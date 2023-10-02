@@ -22,7 +22,9 @@ async def delete(
     """
     When no infrastructure ids are specified, all infrastructures will be deleted.
     """
-    infrastructure_ids = infrastructure_ids if infrastructure_ids else await InfrastructureController.get_infra_ids()
+    infrastructure_ids = (
+        infrastructure_ids if infrastructure_ids else list(await InfrastructureController.list_infrastructures().keys())
+    )
     delete_tasks = set()
 
     for infra_id in infrastructure_ids:
@@ -43,9 +45,9 @@ async def delete(
 @infras_typer.command("list")
 async def list_ids():
     """
-    List infrastructure IDs.
+    List infrastructures id:name key values.
     """
-    print({"infrastructure_ids": await InfrastructureController.get_infra_ids()})
+    print({"infrastructures": await InfrastructureController.list_infrastructures()})
 
 
 @infras_typer.command("get")
@@ -61,9 +63,10 @@ async def get(
     """
     get_tasks = set()
 
-    infrastructure_ids = infrastructure_ids if infrastructure_ids else await InfrastructureController.get_infra_ids()
+    infrastructure_ids = (
+        infrastructure_ids if infrastructure_ids else await InfrastructureController.list_infrastructures()
+    )
 
     for infra_id in infrastructure_ids:
         get_tasks.add(asyncio.create_task(InfrastructureController.get_infra_info(infra_id)))
-
         print(json.dumps(await asyncio.gather(*get_tasks), indent=4))
