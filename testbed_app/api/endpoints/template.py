@@ -30,7 +30,7 @@ async def create_template(template: Template):
     return {"message": f"Template {template.name} has been created"}
 
 
-@router.get("/delete/{run_id}")
+@router.get("/delete/{template_id}")
 async def delete_template(template_id: int):
     """
     responses:
