@@ -4,3 +4,4 @@ __pycache__
 .venv
 testbed_app/log/*
 testbed_app/log
+/tests/unit_tests/.pytest_cache/

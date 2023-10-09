@@ -11,7 +11,7 @@ python = ">=3.9,<3.12"
 docker = "^6.1.2"
 netaddr = "^0.8.0"
 randomname = "^0.2.1"
-cyst-core = { path = "./cyst-core" }
+cyst-core = "0.5.0"
 black = {extras = ["d"], version = "^23.3.0"}
 uvicorn = "^0.23.0"
 asyncpg = "^0.28.0"
