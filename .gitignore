@@ -1,5 +1,4 @@
 .idea
-cyst_core
 __pycache__
 .venv
 testbed_app/log/*
