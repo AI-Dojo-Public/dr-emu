@@ -1,6 +1,7 @@
 .idea
 __pycache__
 .venv
-testbed_app/log/*
-testbed_app/log
+dr_emu/log/*
+dr_emu/log
 /tests/unit_tests/.pytest_cache/
+/tests/integration_tests/.pytest_cache/
