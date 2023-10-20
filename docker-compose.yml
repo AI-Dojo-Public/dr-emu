@@ -1,35 +1,48 @@
 version: '3.9'
 services:
-#  aidojo_db:
-#    restart: always
-#    image: postgres:15
-#    container_name: aidojo-db
-#    env_file:
-#      - .env
-#    volumes:
-#      - ai-dojo-testbed:/var/lib/postgresql/data
-#    healthcheck:
-#      test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
-#      interval: 20s
-#      timeout: 10s
-#      retries: 5
-#
-#  aidojo_app:
-#    restart: always
-#    build:
-#      context: .
-#      dockerfile: Dockerfile
-#      target: aidojo-app
-#    container_name: aidojo-app
-#    depends_on:
-#      aidojo_db:
-#        condition: service_healthy
-#    ports:
-#      - "0.0.0.0:8000:8000"
-#    env_file:
-#      - .env
-#    volumes:
-#      - /var/run/docker.sock:/var/run/docker.sock
+  aidojo_db:
+    restart: always
+    image: postgres:15
+    container_name: aidojo-db
+    env_file:
+      - .env
+    volumes:
+      - ai-dojo-testbed:/var/lib/postgresql/data
+    healthcheck:
+      test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  aidojo_app:
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: aidojo-app
+    container_name: aidojo-app
+    depends_on:
+      aidojo_db:
+        condition: service_healthy
+    ports:
+      - "0.0.0.0:8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  cyst_demo:
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cyst-demo
+    container_name: cyst-demo
+    stdin_open: true
+    tty: true
+    networks:
+      cryton:
+        ipv4_address: 192.168.250.11
 
   cryton_core:
     restart: always
