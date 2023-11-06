@@ -23,6 +23,7 @@ IMAGE_ROUTER = "router"
 IMAGE_NODE = "node"
 IMAGE = "image"
 COMMAND = "command"
+DEPENDS_ON = "depends_on"
 HEALTHCHECK = "healthcheck"
 VOLUMES = "volumes"
 MOUNTS = "mounts"
@@ -151,6 +152,7 @@ TESTBED_INFO = {
         IMAGE: "wordpress:6.1.1-apache",
         COMMAND: None,
         HEALTHCHECK: WPS_APP_HEALTH_CHECK,
+        DEPENDS_ON: {"wordpress_db": "service_started"},
         VOLUMES: {"wordpress_app_html": {"bind": "/var/www/html", "mode": "rw"}},
     },
     "wordpress_db": {
