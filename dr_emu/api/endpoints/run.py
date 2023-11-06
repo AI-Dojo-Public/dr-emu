@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from sqlalchemy.exc import NoResultFound
+from docker.errors import ImageNotFound
 
 from dr_emu.controllers import run as run_controller
 from pydantic import BaseModel
@@ -55,6 +56,8 @@ async def start_run(run_id: int, instances: int = 1):
         await run_controller.start_run(run_id, instances)
     except NoResultFound:
         return {"message": f"Run with id {run_id} ID doesn't exist!"}
+    except (ImageNotFound, RuntimeError, Exception) as ex:
+        return {"message": str(ex)}
 
     return {"message": f"{instances} Run instances created"}
 

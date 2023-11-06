@@ -113,9 +113,16 @@ class CYSTParser:
             )
 
             services = await self.parse_services(cyst_node.active_services + cyst_node.passive_services)
-
             environment = envs if (envs := constants.envs.get(cyst_node.id)) is not None else {}
             command = container[constants.COMMAND] if (container := constants.TESTBED_INFO.get(cyst_node.id)) else []
+            try:
+                depends_on = constants.TESTBED_INFO[cyst_node.id][constants.DEPENDS_ON]
+            except KeyError:
+                depends_on = {}
+            try:
+                healthcheck = constants.TESTBED_INFO[cyst_node.id][constants.HEALTHCHECK]
+            except KeyError:
+                healthcheck = {}
 
             if cyst_node == attacker:
                 node = Attacker(
@@ -125,6 +132,8 @@ class CYSTParser:
                     services=services,
                     environment=environment,
                     command=command,
+                    depends_on=depends_on,
+                    healthcheck=healthcheck,
                 )
             else:
                 node = Node(
@@ -134,6 +143,8 @@ class CYSTParser:
                     services=services,
                     environment=environment,
                     command=command,
+                    depends_on=depends_on,
+                    healthcheck=healthcheck,
                 )
 
             self.nodes.append(node)
@@ -147,6 +158,8 @@ class CYSTParser:
         services = []
 
         for cyst_service in node_services:
+            if cyst_service.type in constants.IGNORE_SERVICES:
+                continue
             service_image = (
                 specified_image
                 if (specified_image := constants.TESTBED_IMAGES.get(cyst_service.id)) is not None
@@ -156,12 +169,23 @@ class CYSTParser:
             configuration = await self.get_service_configuration(cyst_service.id)
             environment = envs if (envs := constants.envs.get(cyst_service.id)) is not None else {}
             command = container[constants.COMMAND] if (container := constants.TESTBED_INFO.get(cyst_service.id)) else []
+            try:
+                depends_on = constants.TESTBED_INFO[cyst_service.id][constants.DEPENDS_ON]
+            except KeyError:
+                depends_on = {}
+
+            try:
+                healthcheck = constants.TESTBED_INFO[cyst_service.id][constants.HEALTHCHECK]
+            except KeyError:
+                healthcheck = {}
 
             service = Service(
                 name=cyst_service.id,
                 image=service_image,
                 environment=environment,
                 command=command,
+                depends_on=depends_on,
+                healthcheck=healthcheck,
                 **configuration["kwargs"],
             )
             services.append(service)

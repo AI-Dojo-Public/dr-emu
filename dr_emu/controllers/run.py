@@ -7,7 +7,7 @@ from dr_emu.database_config import session_factory
 from dr_emu.lib.logger import logger
 from dr_emu.models import Run, Agent, Template, Instance, Infrastructure, Node
 from dr_emu.lib.exceptions import NoAgents
-from dr_emu.controllers import instance as instance_controller
+from docker.errors import ImageNotFound
 
 
 async def create_run(name: str, template_id: int, agent_ids: list[int]) -> Run:

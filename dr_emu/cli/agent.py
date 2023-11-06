@@ -34,7 +34,7 @@ async def create_agent(name, role, source):
         TypeError,
     ) as ex:
         logger.error("Agent couldn't be installed", exception=ex)
-        print(f"[bold red]Agent couldn't be installed!.[/bold red]")
+        print(f"[bold red]Agent couldn't be installed![/bold red]")
 
 
 @agent_typer.command("list")
@@ -112,7 +112,11 @@ async def git_source(
     token: Annotated[
         str,
         typer.Option(
-            "--token", "-t", help="Git access token", prompt="Personal/Repository access token (hidden input)"
+            "--token",
+            "-t",
+            help="Git access token",
+            prompt="Personal/Repository access token (hidden input)",
+            hide_input=True,
         ),
     ],
     username: Annotated[

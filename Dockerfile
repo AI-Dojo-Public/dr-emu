@@ -31,7 +31,7 @@ RUN poetry config installer.max-workers 10
 RUN poetry install --no-interaction --no-ansi -v
 
 # run application
-ENTRYPOINT ["poetry", "run", "uvicorn", "testbed_app.app:app", "--reload", "--host", "0.0.0.0"]
+ENTRYPOINT ["poetry", "run", "uvicorn", "dr_emu.app:app", "--reload", "--host", "0.0.0.0"]
 
 FROM base as cyst-demo
 RUN apk update

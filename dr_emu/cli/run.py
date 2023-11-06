@@ -1,5 +1,5 @@
 from sqlalchemy.exc import NoResultFound
-
+from docker.errors import ImageNotFound
 from dr_emu.cli import UTyper
 import typer
 from typing_extensions import Annotated
@@ -97,6 +97,8 @@ async def start_run(
         print(f"[bold green]{number_of_instances} Run instances created[/bold green]")
     except NoResultFound:
         print(f"[bold red]Run with id {run_id} ID doesn't exist![/bold red]")
+    except (ImageNotFound, RuntimeError, Exception) as ex:
+        print(f"[bold red]{ex}[/bold red]")
 
 
 @run_typer.command("stop")

@@ -5,6 +5,7 @@ import randomname
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 import docker
+from docker.errors import ImageNotFound, APIError, NullResource
 from netaddr import IPNetwork
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,22 +57,22 @@ class InfrastructureController:
         """
         logger.info("Starting infrastructure", name=self.infrastructure.name)
 
-        try:
-            create_network_tasks = await self.create_networks()
-            await asyncio.gather(*create_network_tasks)
-            logger.debug("Networks created", infrastructure_id=self.infrastructure.id)
+        create_network_tasks = await self.create_networks()
+        await asyncio.gather(*create_network_tasks)
+        logger.debug("Networks created", infrastructure_id=self.infrastructure.id)
 
-            start_router_tasks = await self.start_routers()
-            start_node_tasks = await self.start_nodes()
-            logger.debug("Appliances started", infrastructure_id=self.infrastructure.id)
-            await asyncio.gather(*start_node_tasks, *start_router_tasks)
+        create_node_tasks = await self.create_nodes()
+        logger.debug("Nodes created", infrastructure_id=self.infrastructure.id)
+        await asyncio.gather(*create_node_tasks)
 
-            configure_appliance_tasks = await self.configure_appliances(db_session)
-            await asyncio.gather(*configure_appliance_tasks)
-            logger.debug("Appliances configured", infrastructure_id=self.infrastructure.id)
-        except Exception as ex:
-            await self.stop(check_id=True)
-            raise ex
+        start_router_tasks = await self.start_routers()
+        start_node_tasks = await self.start_nodes()
+        logger.debug("Appliances started", infrastructure_id=self.infrastructure.id)
+        await asyncio.gather(*start_node_tasks, *start_router_tasks)
+
+        configure_appliance_tasks = await self.configure_appliances(db_session)
+        await asyncio.gather(*configure_appliance_tasks)
+        logger.debug("Appliances configured", infrastructure_id=self.infrastructure.id)
 
         logger.info("Created infrastructure", id=self.infrastructure.id, name=self.infrastructure.name)
 
@@ -91,9 +92,17 @@ class InfrastructureController:
         logger.debug("Starting routers", infrastructure_id=self.infrastructure.id)
         return {asyncio.create_task(router.start()) for router in self.infrastructure.routers}
 
+    async def create_nodes(self) -> set[asyncio.Task]:
+        """
+        Creates async tasks for creating nodes.
+        :return: set of tasks to create node containers
+        """
+        logger.debug("Creating nodes", infrastructure_id=self.infrastructure.id)
+        return {asyncio.create_task(node.create()) for node in self.infrastructure.nodes}
+
     async def start_nodes(self) -> set[asyncio.Task]:
         """
-        Creates async tasks for creating and starting nodes.
+        Creates async tasks for starting nodes.
         :return: set of tasks to start node containers
         """
         logger.debug("Starting nodes", infrastructure_id=self.infrastructure.id)
@@ -107,7 +116,7 @@ class InfrastructureController:
         logger.debug("Configuring appliances", infrastructure_id=self.infrastructure.id)
         node_configure_tasks = {asyncio.create_task(node.configure()) for node in self.infrastructure.nodes}
 
-        routers = await router_controller.get_infra_routers(self.infrastructure.id, db_session)
+        routers = self.infrastructure.routers
         router_configure_tasks = {
             asyncio.create_task(router.configure(routers)) for router in self.infrastructure.routers
         }
@@ -320,17 +329,17 @@ class InfrastructureController:
 
         controller.infrastructure.networks.append(management_network)
 
-        if [str(network) for network in available_networks] != [
-            str(network.ipaddress) for network in controller.infrastructure.networks
-        ]:
-            await asyncio.gather(
-                controller.change_ipadresses(available_networks),
-            )
-            logger.debug(
-                "IP addresses changed for new infrastructure",
-                infrastructure_name=infrastructure.name,
-                infrastructure_id=infrastructure.id,
-            )
+        if set(available_networks) != {
+            network.ipaddress for network in controller.infrastructure.networks
+        }:
+                await asyncio.gather(
+                    controller.change_ipadresses(available_networks),
+                )
+                logger.debug(
+                    "IP addresses changed for new infrastructure",
+                    infrastructure_name=infrastructure.name,
+                    infrastructure_id=infrastructure.id,
+                )
 
         return controller
 
@@ -405,18 +414,30 @@ class InfrastructureController:
                     infrastructure_name=infrastructure.name,
                 )
 
-                session.add(run_instance)
-                await session.commit()
 
                 logger.debug(
                     "Starting infrastructure",
                     infrastructure_name=infrastructure.name,
                     infrastructure_id=infrastructure.id,
                 )
-                controller_start_tasks.add(asyncio.create_task(controller.start(session)))
 
-                await asyncio.gather(*controller_start_tasks)
+                try:
+                    controller_start_tasks.add(asyncio.create_task(controller.start(session)))
+                    await asyncio.gather(*controller_start_tasks)
+                except (ImageNotFound, APIError, RuntimeError, Exception) as error:
+                    logger.debug(
+                        f"Deleting instance due to {type(error).__name__}",
+                        infrastructure_id=infrastructure.id,
+                        exception=error,
+                    )
+                    # TODO: Is there an exception where the containers(docker_ids) are created?
+                    try:
+                        await controller.stop()
+                    except NullResource:
+                        pass
+                    raise error
 
+                session.add(run_instance)
                 await session.commit()
 
     @staticmethod

@@ -127,7 +127,7 @@ async def get_available_networks(
     available_subnets = list(default_networks_ips) if default_infra_ipspace else []
 
     for subnet in subnets:
-        if subnet not in used_networks:
+        if subnet not in [*used_networks, *available_subnets]:
             available_subnets.append(subnet)
         if len(available_subnets) == number_of_returned_subnets:
             break

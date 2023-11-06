@@ -11,7 +11,9 @@ from docker import DockerClient
 from docker.models.containers import Container
 from docker.models.networks import Network as DockerNetwork
 from docker.types import IPAMPool, IPAMConfig
+from docker.errors import NotFound
 
+from sqlalchemy_utils import JSONType
 from sqlalchemy import ForeignKey, String, JSON, Column, Table
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import (
@@ -21,12 +23,12 @@ from sqlalchemy.orm import (
     Mapped,
 )
 from sqlalchemy_utils import force_instant_defaults, ScalarListType
-from sqlalchemy import types
 
 from dr_emu.lib.exceptions import ContainerNotRunning, PackageNotAccessible
 from dr_emu.lib.logger import logger
 from dr_emu.resources import docker_client
 from parser.util import constants
+from dr_emu.lib import util
 
 # TODO: add init methods with defaults to models instead of this?
 force_instant_defaults()
@@ -43,10 +45,10 @@ class DockerMixin:
 
     __abstract__ = True
 
-    docker_id: Mapped[str] = mapped_column(default="")
+    docker_id: Mapped[str] = mapped_column()
     name: Mapped[str] = mapped_column()
     client: DockerClient = docker_client
-    kwargs: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    kwargs: Mapped[Optional[dict]] = mapped_column(JSONType, nullable=True)
 
     @abstractmethod
     async def create(self):
@@ -78,11 +80,10 @@ class DockerContainerMixin(DockerMixin):
     Base class for docker container models
     """
 
-    __abstract__ = True
-
     image: Mapped[str] = mapped_column(default=constants.IMAGE_BASE)
-    environment: Mapped[str] = mapped_column(JSON, nullable=True)
+    environment: Mapped[dict] = mapped_column(JSONType, nullable=True)
     command: Mapped[str] = mapped_column(ScalarListType, nullable=True)
+    healthcheck: Mapped[dict] = mapped_column(JSONType, nullable=True)
     detach: Mapped[bool] = mapped_column(default=True)
     tty: Mapped[bool] = mapped_column(default=True)
 
@@ -108,7 +109,6 @@ class DockerContainerMixin(DockerMixin):
         Delete docker object
         :return: None
         """
-        pass
 
 
 class Network(DockerMixin, Base):
@@ -180,7 +180,10 @@ class Network(DockerMixin, Base):
         Delete docker network object
         :return:
         """
-        await asyncio.to_thread((await self.get()).remove)
+        try:
+            await asyncio.to_thread((await self.get()).remove)
+        except (NotFound, NotFound):
+            pass
 
 
 class Interface(Base):
@@ -262,7 +265,6 @@ class Appliance(DockerContainerMixin, Base):
             restart_policy={"Name": "always"},
         )
 
-    # TODO: add exception handling for missing docker image
     async def create(self):
         """
         Create a docker container with necessary configurations.
@@ -282,6 +284,7 @@ class Appliance(DockerContainerMixin, Base):
                 host_config=host_config,
                 environment=self.environment,
                 command=self.command,
+                healthcheck=self.healthcheck,
             )
         )["Id"]
 
@@ -297,8 +300,11 @@ class Appliance(DockerContainerMixin, Base):
         Delete docker container represented by Appliance model (node or router)
         :return:
         """
-        container = await self.get()
-        await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
+        try:
+            container = await self.get()
+            await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
+        except NotFound:
+            pass
 
 
 class Infrastructure(Base):
@@ -404,7 +410,7 @@ class Router(Appliance):
         :return:
         """
         await self.create()
-        (await self.get()).start()
+        await asyncio.to_thread((await self.get()).start)
         await self.connect_to_networks()
 
 
@@ -437,6 +443,7 @@ class Node(Appliance):
     services: Mapped[list["Service"]] = relationship(back_populates="parent_node", cascade="all, delete-orphan")
     ipc_mode: Mapped[str] = mapped_column(default="shareable", nullable=True)
     infrastructure: Mapped["Infrastructure"] = relationship(back_populates="nodes")
+    depends_on: Mapped[dict] = mapped_column(JSONType, default={})
 
     __mapper_args__ = {
         "polymorphic_identity": "node",
@@ -467,18 +474,29 @@ class Node(Appliance):
         ]
 
         for instruction in setup_instructions:
-            await asyncio.to_thread(container.exec_run, cmd=instruction)  # type: ignore
+            await asyncio.to_thread(container.exec_run, cmd=instruction, privileged=True, user="0")  # type: ignore
+
+    async def create(self):
+        """
+        Create a docker container representing a Node.
+        :return:
+        """
+        await super().create()
+        create_service_tasks = await self.create_services()
+        await asyncio.gather(*create_service_tasks)
 
     async def start(self):
         """
         Start a docker container representing a Node.
         :return:
         """
-        await self.create()
+        # if self.depends_on:
+        #     if not await util.depends_on(self.infrastructure.name, self.client, self.depends_on):
+        #         raise RuntimeError(f"Some dependency of container {self.name} didn't start within timeout")
         await asyncio.to_thread((await self.get()).start)
 
-        create_service_tasks = await self.create_services()
-        await asyncio.gather(*create_service_tasks)
+        start_service_tasks = await self.start_services()
+        await asyncio.gather(*start_service_tasks)
 
     async def create_services(self) -> set[asyncio.Task]:
         """
@@ -487,16 +505,23 @@ class Node(Appliance):
         """
         return {asyncio.create_task(service.create()) for service in self.services}
 
+    async def start_services(self) -> set[asyncio.Task]:
+        """
+        Create services in form of docker containers, that should be connected to this Node.
+        :return:
+        """
+        return {asyncio.create_task(service.start()) for service in self.services}
+
     async def delete(self):
         """
         Stop and delete docker container representing a Node
         :return:
         """
+
         delete_services_tasks = await self.delete_services()
         await asyncio.gather(*delete_services_tasks)
 
-        container = await self.get()
-        await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
+        await super().delete()
 
     async def delete_services(self) -> set[asyncio.Task]:
         """
@@ -513,19 +538,17 @@ class Attacker(Node):
 
     async def start(self):
         """
-        Start a docker container representing a Node.
+        Start a docker container representing an Attacker.
         :return:
         """
-        await self.create()
 
         container = await self.get()
         await asyncio.to_thread(container.start)
 
         # connect attacker to cryton network
         self.client.networks.get(constants.CRYTON_NETWORK_NAME).connect(container)
-
-        create_service_tasks = await self.create_services()
-        await asyncio.gather(*create_service_tasks)
+        start_service_tasks = await self.start_services()
+        await asyncio.gather(*start_service_tasks)
 
     async def configure(self):
         """
@@ -553,6 +576,7 @@ class Service(DockerContainerMixin, Base):
 
     parent_node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
     parent_node: Mapped["Node"] = relationship(back_populates="services")
+    depends_on: Mapped[dict] = mapped_column(JSONType, default={})
 
     async def get(self) -> Container:
         """
@@ -578,20 +602,29 @@ class Service(DockerContainerMixin, Base):
             ipc_mode=f"container:{self.parent_node.name}",
             environment=self.environment,
             command=self.command,
+            healthcheck=self.healthcheck,
             tty=self.tty,
             **kwargs,
         )
+
         self.docker_id = container.id
 
-        await asyncio.to_thread(container.start)
+    async def start(self):
+        if self.depends_on:
+            if not await util.depends_on(self.client, self.depends_on):
+                raise RuntimeError(f"Some dependency of container {self.name} didn't start within timeout")
+        await asyncio.to_thread((await self.get()).start)
 
     async def delete(self):
         """
         Stop and delete a docker container representing a Service.
         :return:
         """
-        container = await self.get()
-        await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
+        try:
+            container = await self.get()
+            await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
+        except NotFound:
+            pass
 
 
 agent_association_table = Table(
