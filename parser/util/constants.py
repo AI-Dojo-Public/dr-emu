@@ -34,6 +34,8 @@ SERVICE_STARTED = "service_started"
 FIREWALL_ALLOW = "ALLOW"
 FIREWALL_DENY = "DENY"
 
+IGNORE_SERVICES = ["ssh", "bash"]
+
 CRYTON_NETWORK_IP = IPNetwork(
     yaml.load(open(rf"{compose_path}"), Loader=yaml.FullLoader)["networks"]["cryton"]["ipam"]["config"][0]["subnet"]
 )
@@ -148,11 +150,11 @@ envs = {
 }
 
 TESTBED_INFO = {
-    "wordpress_node": {
+    "wordpress_app": {
         IMAGE: "wordpress:6.1.1-apache",
         COMMAND: None,
         HEALTHCHECK: WPS_APP_HEALTH_CHECK,
-        DEPENDS_ON: {"wordpress_db": "service_started"},
+        DEPENDS_ON: {"wordpress_db": SERVICE_STARTED},
         VOLUMES: {"wordpress_app_html": {"bind": "/var/www/html", "mode": "rw"}},
     },
     "wordpress_db": {

@@ -1,6 +1,8 @@
 from __future__ import annotations
 import asyncio
 import re
+from sqlalchemy import Enum
+import enum
 from typing import Optional, Union
 from abc import abstractmethod
 from netaddr import IPAddress, IPNetwork
@@ -11,17 +13,12 @@ from docker import DockerClient
 from docker.models.containers import Container
 from docker.models.networks import Network as DockerNetwork
 from docker.types import IPAMPool, IPAMConfig
-from docker.errors import NotFound
+from docker.errors import NotFound, APIError
 
 from sqlalchemy_utils import JSONType
 from sqlalchemy import ForeignKey, String, JSON, Column, Table
 from sqlalchemy.ext.asyncio import AsyncAttrs
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    relationship,
-    mapped_column,
-    Mapped,
-)
+from sqlalchemy.orm import DeclarativeBase, relationship, mapped_column, Mapped, declared_attr
 from sqlalchemy_utils import force_instant_defaults, ScalarListType
 
 from dr_emu.lib.exceptions import ContainerNotRunning, PackageNotAccessible
@@ -42,8 +39,6 @@ class DockerMixin:
     """
     Base class for docker models
     """
-
-    __abstract__ = True
 
     docker_id: Mapped[str] = mapped_column()
     name: Mapped[str] = mapped_column()
@@ -443,7 +438,6 @@ class Node(Appliance):
     services: Mapped[list["Service"]] = relationship(back_populates="parent_node", cascade="all, delete-orphan")
     ipc_mode: Mapped[str] = mapped_column(default="shareable", nullable=True)
     infrastructure: Mapped["Infrastructure"] = relationship(back_populates="nodes")
-    depends_on: Mapped[dict] = mapped_column(JSONType, default={})
 
     __mapper_args__ = {
         "polymorphic_identity": "node",
@@ -490,9 +484,6 @@ class Node(Appliance):
         Start a docker container representing a Node.
         :return:
         """
-        # if self.depends_on:
-        #     if not await util.depends_on(self.infrastructure.name, self.client, self.depends_on):
-        #         raise RuntimeError(f"Some dependency of container {self.name} didn't start within timeout")
         await asyncio.to_thread((await self.get()).start)
 
         start_service_tasks = await self.start_services()
@@ -576,7 +567,9 @@ class Service(DockerContainerMixin, Base):
 
     parent_node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
     parent_node: Mapped["Node"] = relationship(back_populates="services")
-    depends_on: Mapped[dict] = mapped_column(JSONType, default={})
+    dependencies: Mapped[list["DependsOn"]] = relationship(
+        back_populates="dependant", foreign_keys="DependsOn.dependant_service_id", cascade="all, delete-orphan"
+    )
 
     async def get(self) -> Container:
         """
@@ -610,8 +603,8 @@ class Service(DockerContainerMixin, Base):
         self.docker_id = container.id
 
     async def start(self):
-        if self.depends_on:
-            if not await util.depends_on(self.client, self.depends_on):
+        if self.dependencies:
+            if not await self.wait_for_dependency():
                 raise RuntimeError(f"Some dependency of container {self.name} didn't start within timeout")
         await asyncio.to_thread((await self.get()).start)
 
@@ -626,6 +619,57 @@ class Service(DockerContainerMixin, Base):
         except NotFound:
             pass
 
+    async def wait_for_dependency(self, timeout=35) -> bool:
+        async def check_dependency(dependency_model: DependsOn):
+            count = 0
+            while count < timeout:
+                try:
+                    container_info = await asyncio.to_thread(
+                        self.client.api.inspect_container, dependency_model.dependency.name
+                    )
+                except (NotFound, APIError):
+                    logger.debug(f"Waiting for dependency container: {dependency_model.dependency.name}")
+                    await asyncio.sleep(1)
+                    count += 1
+                    continue
+
+                if dependency_model.state == constants.SERVICE_HEALTHY:
+                    if container_info["State"]["Status"] != "running":
+                        await asyncio.sleep(1)
+                        count += 1
+                        continue
+                    else:
+                        try:
+                            container_health = container_info["State"]["Health"]["Status"]
+                            if container_health == "healthy":
+                                return True
+                            else:
+                                logger.debug(f"Waiting for healthy container: {dependency_model.dependency.name}")
+                                await asyncio.sleep(1)
+                                count += 1
+                        except KeyError:
+                            logger.error(
+                                f"Container {dependency_model.dependency.name} doesn't have a health check. Changing "
+                                f"dependency to 'container_started'"
+                            )
+                            dependency_model.state = constants.SERVICE_STARTED
+
+                elif dependency_model.state == constants.SERVICE_STARTED:
+                    if container_info["State"]["Status"] == "running":
+                        return True
+                    else:
+                        logger.debug(f"Waiting for dependency container: {dependency_model.dependency.name}")
+                        await asyncio.sleep(1)
+                        count += 1
+
+        for dependency in self.dependencies:
+            if await check_dependency(dependency) is True:
+                continue
+            else:
+                return False
+
+        return True
+
 
 agent_association_table = Table(
     "agent_association_table",
@@ -633,6 +677,24 @@ agent_association_table = Table(
     Column("agent_id", ForeignKey("agent.id")),
     Column("run_id", ForeignKey("run.id")),
 )
+
+
+class ContainerState(enum.Enum):
+    service_healthy = constants.SERVICE_HEALTHY
+    service_started = constants.SERVICE_STARTED
+
+
+class DependsOn(Base):
+    """Class for dependency container startup"""
+
+    __tablename__ = "depends_on"
+    dependant_service_id: Mapped[int] = mapped_column(ForeignKey("service.id"))
+    dependency_service_id: Mapped[int] = mapped_column(ForeignKey("service.id"))
+
+    dependant: Mapped["Service"] = relationship(back_populates="dependencies", foreign_keys=[dependant_service_id])
+    dependency: Mapped["Service"] = relationship(foreign_keys=[dependency_service_id])
+
+    state: Mapped[ContainerState] = mapped_column()
 
 
 class AgentInstallationMethod(Base):
