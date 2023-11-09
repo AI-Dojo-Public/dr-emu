@@ -14,8 +14,7 @@ from sqlalchemy.orm import joinedload
 from parser.util import util, constants
 from dr_emu.lib.logger import logger
 from dr_emu.database_config import session_factory
-from dr_emu.controllers import router as router_controller
-from dr_emu.models import Infrastructure, Network, Interface, Instance, Run
+from dr_emu.models import Infrastructure, Network, Interface, Instance, Run, Node, Service, DependsOn
 
 from parser.cyst_parser import CYSTParser
 
@@ -62,13 +61,13 @@ class InfrastructureController:
         logger.debug("Networks created", infrastructure_id=self.infrastructure.id)
 
         create_node_tasks = await self.create_nodes()
-        logger.debug("Nodes created", infrastructure_id=self.infrastructure.id)
         await asyncio.gather(*create_node_tasks)
+        logger.debug("Nodes created", infrastructure_id=self.infrastructure.id)
 
         start_router_tasks = await self.start_routers()
         start_node_tasks = await self.start_nodes()
-        logger.debug("Appliances started", infrastructure_id=self.infrastructure.id)
         await asyncio.gather(*start_node_tasks, *start_router_tasks)
+        logger.debug("Appliances started", infrastructure_id=self.infrastructure.id)
 
         configure_appliance_tasks = await self.configure_appliances(db_session)
         await asyncio.gather(*configure_appliance_tasks)
@@ -280,6 +279,24 @@ class InfrastructureController:
             else:
                 container_names.add(network.name)
 
+    async def resolve_dependencies(self):
+        """
+        Add startup container dependencies to models
+        """
+        logger.debug("Resolving container dependencies", infrastructure_name=self.infrastructure.name)
+        containers: list[Service] = []
+        for node in self.infrastructure.nodes:
+            containers += node.services
+
+        container_dict: dict[str:Service] = {container.name: container for container in containers}
+        for container in containers:
+            if container.name in constants.TESTBED_INFO.keys():
+                if dependencies := constants.TESTBED_INFO[container.name].get(constants.DEPENDS_ON):
+                    for key, value in dependencies.items():
+                        if dependency := container_dict.get(key):
+                            container.dependencies.append(DependsOn(dependency=dependency, state=value))
+        logger.debug("Dependencies resolved", infrastructure_name=self.infrastructure.name)
+
     @staticmethod
     async def prepare_controller_for_infra_creation(
         docker_client: docker.DockerClient,
@@ -303,6 +320,8 @@ class InfrastructureController:
         )
 
         controller = InfrastructureController(docker_client, images, infrastructure)
+
+        await controller.resolve_dependencies()
 
         used_network_names = await util.get_network_names(docker_client)
 
@@ -329,17 +348,15 @@ class InfrastructureController:
 
         controller.infrastructure.networks.append(management_network)
 
-        if set(available_networks) != {
-            network.ipaddress for network in controller.infrastructure.networks
-        }:
-                await asyncio.gather(
-                    controller.change_ipadresses(available_networks),
-                )
-                logger.debug(
-                    "IP addresses changed for new infrastructure",
-                    infrastructure_name=infrastructure.name,
-                    infrastructure_id=infrastructure.id,
-                )
+        if set(available_networks) != {network.ipaddress for network in controller.infrastructure.networks}:
+            await asyncio.gather(
+                controller.change_ipadresses(available_networks),
+            )
+            logger.debug(
+                "IP addresses changed for new infrastructure",
+                infrastructure_name=infrastructure.name,
+                infrastructure_id=infrastructure.id,
+            )
 
         return controller
 
@@ -409,12 +426,6 @@ class InfrastructureController:
                 infrastructure=controller.infrastructure,
             )
             async with session_factory() as session:
-                logger.debug(
-                    "Saving run instance to DB",
-                    infrastructure_name=infrastructure.name,
-                )
-
-
                 logger.debug(
                     "Starting infrastructure",
                     infrastructure_name=infrastructure.name,
