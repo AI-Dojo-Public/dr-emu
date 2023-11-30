@@ -20,6 +20,15 @@ docker build -t base --target base .
 docker build -t router --target router .
 docker build -t node --target node .
 ```
+
+### Private Repository
+If the docker images that should be downloaded for the infrastructure are in **private repository** please edit 
+**$DOCKER_TOKEN** and **$REGISTRY_URL** Environmental variables.
+
+In **/docker-testbed/.env** change the value of: 
+-   **$DOCKER_TOKEN** - access token for your private repository 
+-   **$REGISTRY_URL** - url of repository's docker container registry (eg. `registry.gitlab.ics.muni.cz:443`).
+
 Run deployment:
 ```shell
 docker compose up -d
