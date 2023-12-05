@@ -40,7 +40,12 @@ docker compose up -d
 For REST API documentation, see `http://127.0.0.1:8000/docs`.
 
 ## CLI
-Application also has a command line interface. Use the following command to invoke the app: 
+Application also has a command line interface. CLI is accessible from application docker container. To access CLI, make sure that the application is deployed via
+`docker compose` and run the following commands. 
+
+```
+docker exec -it aidojo-app /bin/sh
+```
 ```
 dr-emu --help
 ```

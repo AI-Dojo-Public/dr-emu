@@ -29,7 +29,7 @@ WORKDIR /app
 # install python dependencies
 RUN poetry config installer.max-workers 10
 RUN poetry install --no-interaction --no-ansi -v
-
+RUN ln -s /app/.venv/bin/dr-emu /root/.local/bin/dr-emu
 
 # run application
 ENTRYPOINT [ "/app/entrypoint.sh" ]
