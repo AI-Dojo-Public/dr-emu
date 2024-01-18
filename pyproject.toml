@@ -5,6 +5,8 @@ description = ""
 authors = ["Milan Bohacek <bohacek@ics.muni.cz>", "Jiri Raja <Raja@ics.muni.cz>"]
 readme = "README.md"
 
+[tool.black]
+line-length = 120
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
@@ -28,10 +30,13 @@ structlog = "^23.1.0"
 giturlparse2 = "^1.0.0"
 yamlize = "^0.7.1"
 giturlparse = "^0.12.0"
+alembic = "^1.13.0"
+httpx = "^0.26.0"
+python-dotenv = "^1.0.0"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-dr-emu = 'dr_emu.cli.main:app'
+dr-emu = 'cli.main:app'

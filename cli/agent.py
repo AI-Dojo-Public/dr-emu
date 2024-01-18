@@ -1,59 +1,43 @@
-from sqlalchemy.exc import NoResultFound
-from rich import print
-import requests
-from giturlparse import parse
-from dr_emu.cli import UTyper
 import typer
+from giturlparse import parse
+from rich import print
 from typing_extensions import Annotated
 
+from cli.config.config import clm
+from cli.config.endpoints import Agent
 from dr_emu.lib.util import AgentRole
-from dr_emu.models import AgentPypi, AgentGit, AgentLocal
-from dr_emu.lib import exceptions
-from dr_emu.controllers import agent as agent_controller
-from dr_emu.lib.logger import logger
+from dr_emu.schemas.agent import (
+    AgentLocalSchema,
+    AgentPypiSchema,
+    AgentGitSchema,
+)
 
-agent_typer = UTyper()
-source_typer = UTyper()
+agent_typer = typer.Typer()
+source_typer = typer.Typer()
 agent_typer.add_typer(source_typer, name="create", help="Select source for Agent installation")
 
 
-async def create_agent(name, role, source):
+def create_agent(agent_schema: AgentPypiSchema | AgentGitSchema | AgentLocalSchema, endpoint):
     """
     Create Agent.
     """
 
-    try:
-        agent = await agent_controller.create_agent(name, role.value, source)
-        print(
-            f"[bold green]Agent with name: {agent.name} and id: {agent.id} has been created and installed[/bold green]"
-        )
-    except (
-        requests.exceptions.ConnectionError,
-        exceptions.ContainerNotRunning,
-        RuntimeError,
-        TypeError,
-    ) as ex:
-        logger.error("Agent couldn't be installed", exception=ex)
-        print(f"[bold red]Agent couldn't be installed![/bold red]")
+    response = clm.api_post(endpoint, data=agent_schema.model_dump_json())
+    if response.status_code == 201:
+        print("[bold green]Agent created[/bold green]")
+        print(response.json())
 
 
 @agent_typer.command("list")
-async def list_agents():
+def list_agents():
     """
     List all Agents.
     """
-    agents = await agent_controller.list_agents()
-    if agents:
-        for agent in agents:
-            print(
-                f"name: {agent.name}, id: {agent.id}, type: {agent.role}",
-            )
-    else:
-        print("No agents have been created yet")
+    print(clm.api_get_data(Agent.list))
 
 
 @agent_typer.command("update")
-async def update_agent(
+def update_agent(
     agent_id: Annotated[
         int,
         typer.Argument(help="Id of an agent that should be updated"),
@@ -62,15 +46,15 @@ async def update_agent(
     """
     Update agent package
     """
-    try:
-        agent = await agent_controller.update_agent(agent_id)
-        print(f"Agent with name: {agent.name} and id: {agent.id} has been updated")
-    except NoResultFound:
-        print(f"[bold red]Agent with ID: {agent_id} doesn't exist![/bold red]")
+    response = clm.api_get(Agent.update, agent_id)
+    if response == 200:
+        print(f"Agent with id: {agent_id} has been updated")
+    else:
+        print(response.text)
 
 
 @agent_typer.command("delete")
-async def delete_agent(
+def delete_agent(
     agent_id: Annotated[
         int,
         typer.Argument(help="Id of an agent that should be deleted"),
@@ -79,15 +63,15 @@ async def delete_agent(
     """
     Delete Agent based on the provided ID.
     """
-    try:
-        agent = await agent_controller.delete_agent(agent_id)
-        print(f"Agent with name: {agent.name} and id: {agent.id} has been deleted")
-    except NoResultFound:
-        print(f"[bold red]Agent with ID: {agent_id} doesn't exist![/bold red]")
+    response = clm.api_delete(Agent.delete, agent_id)
+    if response.status_code == 204:
+        print(f"Agent with id: {agent_id} has been deleted")
+    else:
+        print(response.text)
 
 
 @source_typer.command("git")
-async def git_source(
+def git_source(
     agent_name: Annotated[
         str,
         typer.Option("--name", "-n", help="agent name", prompt="Agent name"),
@@ -128,24 +112,24 @@ async def git_source(
         ),
     ] = "oauth2",
 ):
-    if (parsed_url := parse(url, check_domain=False)).valid is False:
+    if parse(url, check_domain=False).valid is False:
         print("[bold red]Invalid repository url![/bold red]")
         return
 
-    installation_type = AgentGit(
+    agent = AgentGitSchema(
+        name=agent_name,
+        role=role,
         access_token=token,
         username=username,
         package_name=package_name,
-        host=parsed_url.host,
-        owner=parsed_url.owner,
-        repo_name=parsed_url.repo,
+        git_project_url=url,
     )
 
-    await create_agent(agent_name, role, installation_type)
+    create_agent(agent, Agent.create_git)
 
 
 @source_typer.command("pypi")
-async def git_source(
+def pypi_source(
     agent_name: Annotated[
         str,
         typer.Option("--name", "-n", help="agent name", prompt="Agent name"),
@@ -159,12 +143,16 @@ async def git_source(
         typer.Option("--package", "-p", help="Python package name", prompt="Python package name"),
     ],
 ):
-    installation_type = AgentPypi(package_name=package_name)
-    await create_agent(agent_name, role, installation_type)
+    agent = AgentPypiSchema(
+        name=agent_name,
+        role=role,
+        package_name=package_name,
+    )
+    create_agent(agent, Agent.create_pypi)
 
 
 @source_typer.command("local")
-async def git_source(
+def local_source(
     agent_name: Annotated[
         str,
         typer.Option("--name", "-n", help="agent name", prompt="Agent name"),
@@ -172,10 +160,6 @@ async def git_source(
     role: Annotated[
         AgentRole,
         typer.Option("--role", "-r", help="Agent role", prompt="Agent role"),
-    ],
-    package_name: Annotated[
-        str,
-        typer.Option("--package", "-p", help="Python package name", prompt="Python package name"),
     ],
     path: Annotated[
         str,
@@ -184,6 +168,10 @@ async def git_source(
             prompt="Path to the Agent project in CYST container",
         ),
     ],
+    package_name: Annotated[
+        str,
+        typer.Option("--package", "-p", help="Python package name", prompt="Python package name"),
+    ],
 ):
-    installation_type = AgentLocal(path=path, package_name=package_name)
-    await create_agent(agent_name, role, installation_type)
+    agent = AgentLocalSchema(name=agent_name, role=role, path=path, package_name=package_name)
+    create_agent(agent, Agent.create_local)

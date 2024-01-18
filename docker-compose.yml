@@ -28,6 +28,8 @@ services:
       - "0.0.0.0:8000:8000"
     env_file:
       - .env
+    environment:
+      POETRY_VIRTUALENVS_IN_PROJECT: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
@@ -166,7 +168,6 @@ services:
     networks:
       cryton:
         ipv4_address: 192.168.250.12
-
 
 volumes:
   ai-dojo-testbed:

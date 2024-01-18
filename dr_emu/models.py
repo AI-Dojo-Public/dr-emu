@@ -1,31 +1,33 @@
 from __future__ import annotations
+
 import asyncio
-import re
-from sqlalchemy import Enum
 import enum
-from typing import Optional, Union
+import re
 from abc import abstractmethod
-from netaddr import IPAddress, IPNetwork
-import requests
+from typing import Optional
 
 import docker.types
+import requests
 from docker import DockerClient
+from docker.errors import NotFound, APIError
 from docker.models.containers import Container
 from docker.models.networks import Network as DockerNetwork
 from docker.types import IPAMPool, IPAMConfig
-from docker.errors import NotFound, APIError
-
-from sqlalchemy_utils import JSONType
+from netaddr import IPAddress, IPNetwork
 from sqlalchemy import ForeignKey, String, JSON, Column, Table
 from sqlalchemy.ext.asyncio import AsyncAttrs
-from sqlalchemy.orm import DeclarativeBase, relationship, mapped_column, Mapped, declared_attr
-from sqlalchemy_utils import force_instant_defaults, ScalarListType
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    relationship,
+    mapped_column,
+    Mapped,
+)
+from sqlalchemy_utils import force_instant_defaults, ScalarListType, JSONType
 
 from dr_emu.lib.exceptions import ContainerNotRunning, PackageNotAccessible
 from dr_emu.lib.logger import logger
 from dr_emu.resources import docker_client
 from parser.util import constants
-from dr_emu.lib import util
 
 # TODO: add init methods with defaults to models instead of this?
 force_instant_defaults()
@@ -568,7 +570,9 @@ class Service(DockerContainerMixin, Base):
     parent_node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
     parent_node: Mapped["Node"] = relationship(back_populates="services")
     dependencies: Mapped[list["DependsOn"]] = relationship(
-        back_populates="dependant", foreign_keys="DependsOn.dependant_service_id", cascade="all, delete-orphan"
+        back_populates="dependant",
+        foreign_keys="DependsOn.dependant_service_id",
+        cascade="all, delete-orphan",
     )
 
     async def get(self) -> Container:
@@ -625,7 +629,8 @@ class Service(DockerContainerMixin, Base):
             while count < timeout:
                 try:
                     container_info = await asyncio.to_thread(
-                        self.client.api.inspect_container, dependency_model.dependency.name
+                        self.client.api.inspect_container,
+                        dependency_model.dependency.name,
                     )
                 except (NotFound, APIError):
                     logger.debug(f"Waiting for dependency container: {dependency_model.dependency.name}")
@@ -829,7 +834,14 @@ class Agent(Base):
 
         # check installation
         pip_list_result = await self._execute_command("pip list")
-        if re.search(self.install_method.package_name, str(pip_list_result.output), re.IGNORECASE) is None:
+        if (
+            re.search(
+                self.install_method.package_name,
+                str(pip_list_result.output),
+                re.IGNORECASE,
+            )
+            is None
+        ):
             raise RuntimeError(f"Agent was not found in installed packages. {installation_result}")
 
     async def update_package(self):

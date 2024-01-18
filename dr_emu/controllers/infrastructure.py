@@ -1,5 +1,5 @@
 import asyncio
-from typing import Union, Optional
+from typing import Union, Optional, Sequence
 
 import randomname
 from sqlalchemy import select
@@ -13,8 +13,22 @@ from sqlalchemy.orm import joinedload
 
 from parser.util import util, constants
 from dr_emu.lib.logger import logger
-from dr_emu.database_config import session_factory
-from dr_emu.models import Infrastructure, Network, Interface, Instance, Run, Node, Service, DependsOn
+from dr_emu.models import (
+    Infrastructure,
+    Network,
+    Interface,
+    Instance,
+    Run,
+    Node,
+    Service,
+    DependsOn,
+)
+from dr_emu.schemas.infrastructure import (
+    InfrastructureInfo,
+    NetworkSchema,
+    ApplianceSchema,
+    InfrastructureSchema,
+)
 
 from parser.cyst_parser import CYSTParser
 
@@ -37,19 +51,15 @@ class InfrastructureController:
         self.infrastructure = infrastructure
 
     @staticmethod
-    async def get_infra(infrastructure_id):
-        async with session_factory() as session:
-            # Exception handled in outer function
-            try:
-                return (
-                    (await session.execute(select(Infrastructure).where(Infrastructure.id == infrastructure_id)))
-                    .unique()
-                    .scalar_one()
-                )
-            except NoResultFound:
-                return {"message": f"Infrastructure with id: {infrastructure_id} doesn't exist"}
+    async def get_infra(infrastructure_id, db_session: AsyncSession):
+        # Exception handled in outer function
+        return (
+            (await db_session.execute(select(Infrastructure).where(Infrastructure.id == infrastructure_id)))
+            .unique()
+            .scalar_one()
+        )
 
-    async def start(self, db_session: AsyncSession):
+    async def start(self):
         """
         Executes all necessary functions for building an infrastructure and saves created models to the database.
         :return:
@@ -69,11 +79,15 @@ class InfrastructureController:
         await asyncio.gather(*start_node_tasks, *start_router_tasks)
         logger.debug("Appliances started", infrastructure_id=self.infrastructure.id)
 
-        configure_appliance_tasks = await self.configure_appliances(db_session)
+        configure_appliance_tasks = await self.configure_appliances()
         await asyncio.gather(*configure_appliance_tasks)
         logger.debug("Appliances configured", infrastructure_id=self.infrastructure.id)
 
-        logger.info("Created infrastructure", id=self.infrastructure.id, name=self.infrastructure.name)
+        logger.info(
+            "Created infrastructure",
+            id=self.infrastructure.id,
+            name=self.infrastructure.name,
+        )
 
     async def create_networks(self) -> set[asyncio.Task]:
         """
@@ -107,7 +121,7 @@ class InfrastructureController:
         logger.debug("Starting nodes", infrastructure_id=self.infrastructure.id)
         return {asyncio.create_task(node.start()) for node in self.infrastructure.nodes}
 
-    async def configure_appliances(self, db_session: AsyncSession) -> set[asyncio.Task]:
+    async def configure_appliances(self) -> set[asyncio.Task]:
         """
         Create async tasks for configuring iptables and ip routes in Nodes and Routers.
         :return:
@@ -206,9 +220,11 @@ class InfrastructureController:
                 node_tasks.add(asyncio.create_task(node.delete()))
         return node_tasks
 
-    async def delete_infrastructure(self):
+    async def delete_infrastructure(self, db_session: AsyncSession):
         """
         Delete infrastructure and all models belonging to it (cascade deletion) from db.
+        :param db_session: Async database session
+
         :return:
         """
         logger.debug(
@@ -216,9 +232,9 @@ class InfrastructureController:
             name=self.infrastructure.name,
             id=self.infrastructure.id,
         )
-        async with session_factory() as session:
-            await session.delete(self.infrastructure)
-            await session.commit()
+
+        await db_session.delete(self.infrastructure)
+        await db_session.commit()
         logger.debug(
             "Infrastructure deleted",
             name=self.infrastructure.name,
@@ -283,7 +299,10 @@ class InfrastructureController:
         """
         Add startup container dependencies to models
         """
-        logger.debug("Resolving container dependencies", infrastructure_name=self.infrastructure.name)
+        logger.debug(
+            "Resolving container dependencies",
+            infrastructure_name=self.infrastructure.name,
+        )
         containers: list[Service] = []
         for node in self.infrastructure.nodes:
             containers += node.services
@@ -361,11 +380,12 @@ class InfrastructureController:
         return controller
 
     @staticmethod
-    async def build_infras(number_of_infrastructures: int, run: Run):
+    async def build_infras(number_of_infrastructures: int, run: Run, db_session: AsyncSession):
         """
         Builds docker infrastructure
         :param run: Run object
         :param number_of_infrastructures: Number of infrastructures to build
+        :param db_session: Async database session
         :return:
         """
         logger.info("Building infrastructures")
@@ -391,8 +411,7 @@ class InfrastructureController:
             slice_start = 0 if i == 0 else (len(parser.networks) + 1) * i
             slice_end = slice_start + len(parser.networks) + 1
 
-            async with session_factory() as sesssion:
-                infra_names = (await sesssion.scalars(select(Infrastructure.name))).all()
+            infra_names = (await db_session.scalars(select(Infrastructure.name))).all()
 
             while (infra_name := randomname.generate("adj/colors")) in infra_names:
                 continue
@@ -425,31 +444,31 @@ class InfrastructureController:
                 agent_instances="placeholder",
                 infrastructure=controller.infrastructure,
             )
-            async with session_factory() as session:
+
+            logger.debug(
+                "Starting infrastructure",
+                infrastructure_name=infrastructure.name,
+                infrastructure_id=infrastructure.id,
+            )
+
+            try:
+                controller_start_tasks.add(asyncio.create_task(controller.start()))
+                await asyncio.gather(*controller_start_tasks)
+            except (ImageNotFound, APIError, RuntimeError, Exception) as error:
                 logger.debug(
-                    "Starting infrastructure",
-                    infrastructure_name=infrastructure.name,
+                    f"Deleting instance due to {type(error).__name__}",
                     infrastructure_id=infrastructure.id,
+                    exception=error,
                 )
-
+                # TODO: Is there an exception where the containers(docker_ids) are created?
                 try:
-                    controller_start_tasks.add(asyncio.create_task(controller.start(session)))
-                    await asyncio.gather(*controller_start_tasks)
-                except (ImageNotFound, APIError, RuntimeError, Exception) as error:
-                    logger.debug(
-                        f"Deleting instance due to {type(error).__name__}",
-                        infrastructure_id=infrastructure.id,
-                        exception=error,
-                    )
-                    # TODO: Is there an exception where the containers(docker_ids) are created?
-                    try:
-                        await controller.stop()
-                    except NullResource:
-                        pass
-                    raise error
+                    await controller.stop()
+                except NullResource:
+                    pass
+                raise error
 
-                session.add(run_instance)
-                await session.commit()
+            db_session.add(run_instance)
+            await db_session.commit()
 
     @staticmethod
     async def stop_infra(infrastructure: Infrastructure):
@@ -466,69 +485,53 @@ class InfrastructureController:
         # await controller.delete_infrastructure()
 
     @staticmethod
-    async def delete_infra(infrastructure: Infrastructure):
+    async def delete_infra(infrastructure: Infrastructure, db_session: AsyncSession):
         """
         Destroys docker infrastructure.
         :param infrastructure: Infrastructure object
+        :param db_session: Async database session
         :return:
         """
         controller = InfrastructureController(docker.from_env(), set(), infrastructure)
 
         # delete objects from db
-        await controller.delete_infrastructure()
+        await controller.delete_infrastructure(db_session)
 
     @staticmethod
-    async def list_infrastructures() -> dict[int:str]:
+    async def list_infrastructures(db_session: AsyncSession) -> Sequence[Infrastructure]:
         """
         Return names and Ids of all infrastructures in key:value -> id:name format
+        :param db_session: Async database session
         :return:
         """
-        logger.debug("Pulling infrastructure IDS")
-        result = {}
-        async with session_factory() as session:
-            infrastructures = (await session.scalars(select(Infrastructure))).all()
+        logger.debug("Pulling infrastructures from db")
 
-        for infrastructure in infrastructures:
-            result[infrastructure.id] = infrastructure.name
-        return result
+        return (await db_session.scalars(select(Infrastructure))).all()
 
     @staticmethod
-    async def get_infra_info(infrastructure_id: int) -> Union[dict, str]:
+    async def get_infra_info(infrastructure_id: int, db_session: AsyncSession) -> Infrastructure:
         """
         Parse info about infrastructure specified by ID.
         :param infrastructure_id: infrastructure ID
+        :param db_session: Async database session
         :return: infrastructure description
         """
         logger.debug("Getting infrastructure info", id=infrastructure_id)
 
-        try:
-            async with session_factory() as session:
-                infrastructure = (
-                    (
-                        await session.execute(
-                            select(Infrastructure)
-                            .where(Infrastructure.id == infrastructure_id)
-                            .options(
-                                joinedload(Infrastructure.networks)
-                                .subqueryload(Network.interfaces)
-                                .subqueryload(Interface.appliance),
-                            )
-                        )
+        infrastructure = (
+            (
+                await db_session.execute(
+                    select(Infrastructure)
+                    .where(Infrastructure.id == infrastructure_id)
+                    .options(
+                        joinedload(Infrastructure.networks)
+                        .subqueryload(Network.interfaces)
+                        .subqueryload(Interface.appliance),
                     )
-                    .unique()
-                    .scalar_one()
                 )
-        except NoResultFound:
-            return f"Infrastructure with id: {infrastructure_id} doesn't exist"
+            )
+            .unique()
+            .scalar_one()
+        )
 
-        result = {"name": infrastructure.name, "networks": {}}
-        for network in infrastructure.networks:
-            result["networks"][network.name] = {
-                "ip": str(network.ipaddress),
-                "appliances": [],
-            }
-            for interface in network.interfaces:
-                result["networks"][network.name]["appliances"].append(
-                    (interface.appliance.name, str(interface.ipaddress))
-                )
-        return result
+        return infrastructure

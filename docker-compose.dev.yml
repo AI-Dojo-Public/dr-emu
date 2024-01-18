@@ -1,0 +1,7 @@
+services:
+  aidojo_app:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/app
+    environment:
+      POETRY_VIRTUALENVS_IN_PROJECT: false
