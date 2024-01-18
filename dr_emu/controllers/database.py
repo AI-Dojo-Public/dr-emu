@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dr_emu.lib.logger import logger
-from dr_emu.database_config import async_engine
+from dr_emu.database_config import sessionmanager
 from dr_emu.models import Base
 
 
@@ -11,8 +11,7 @@ async def create_db():
     :return: None
     """
     logger.debug("Creating Database")
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await sessionmanager.engine.connect().run_sync(Base.metadata.create_all)
     logger.info("Database created")
 
 
@@ -22,6 +21,5 @@ async def destroy_db():
     :return:
     """
     logger.debug("Destroying Database")
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    await sessionmanager.engine.connect().run_sync(Base.metadata.drop_all)
     logger.info("Database destroyed")

@@ -1,17 +1,31 @@
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
 from dr_emu.middleware import middleware
-from dr_emu.settings import DEBUG
-from dr_emu.controllers import database
+from dr_emu.settings import settings
+from dr_emu.database_config import sessionmanager
 from dr_emu.api.endpoints import run, infrastructure, agent, template
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Function that handles startup and shutdown events.
+    To understand more, read https://fastapi.tiangolo.com/advanced/events/
+    """
+    yield
+    if sessionmanager._engine is not None:
+        # Close the DB connection
+        await sessionmanager.close()
+
+
 app = FastAPI(
-    on_startup=[database.create_db],
-    on_shutdown=[],
+    lifespan=lifespan,
     middleware=middleware,
-    debug=DEBUG,
+    debug=settings.debug,
 )
 
+# Routers
 app.include_router(run.router)
 app.include_router(infrastructure.router)
 app.include_router(agent.router)

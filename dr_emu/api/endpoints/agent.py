@@ -1,16 +1,18 @@
-from typing import Annotated
-
-from fastapi import APIRouter
-import requests
-from sqlalchemy.exc import NoResultFound
-from dr_emu.controllers import agent as agent_controller
-from pydantic import BaseModel
-from fastapi import Body
+from fastapi import APIRouter, Response, status
 from giturlparse import parse
-from dr_emu.lib.util import AgentRole
+from sqlalchemy.exc import NoResultFound
 
-
+from dr_emu.api.dependencies.core import DBSession
+from dr_emu.api.helpers import nonexistent_object_msg
+from dr_emu.controllers import agent as agent_controller
+from dr_emu.lib import exceptions
 from dr_emu.models import AgentPypi, AgentGit, AgentLocal
+from dr_emu.schemas.agent import (
+    AgentGitSchema,
+    AgentPypiSchema,
+    AgentLocalSchema,
+    AgentOut,
+)
 
 router = APIRouter(
     prefix="/agents",
@@ -19,121 +21,95 @@ router = APIRouter(
 )
 
 
-class Agent(BaseModel):
-    name: str
-    role: AgentRole
-
-
-class AgentLocalSchema(Agent):
-    path: str
-
-
-class AgentPypiSchema(Agent):
-    name: str
-    role: AgentRole
-    package_name: str
-
-
-class AgentGitSchema(AgentPypiSchema):
-    access_token: str
-    username: str
-    git_project_url: str
-
-
-@router.post("/create/")
-async def create_agent(
-    *,
-    agent: Annotated[
-        AgentPypiSchema | AgentGitSchema | AgentLocalSchema,
-        Body(
-            openapi_examples={
-                "git": {
-                    "summary": "Agent installation from GIT",
-                    "value": {
-                        "name": "Foo",
-                        "role": AgentRole.attacker,
-                        "package_name": "ai-agent",
-                        "username": "git_user",
-                        "access_token": "git_token",
-                        "git_project_url": "https://{git_host}/{owner}/{repo_name}.git",
-                    },
-                },
-                "pypi": {
-                    "summary": "Agent installation from PYPI",
-                    "value": {
-                        "name": "Foo",
-                        "role": AgentRole.attacker,
-                        "package_name": "ai-agent",
-                    },
-                },
-                "local": {
-                    "summary": "Agent installation local directory",
-                    "description": "For installation with Agent repository present within the CYST docker container.",
-                    "value": {
-                        "name": "Foo",
-                        "role": AgentRole.attacker,
-                        "package_name": "ai-agent",
-                        "path": "path/to/agent/package",
-                    },
-                },
-            },
-        ),
-    ],
-):
-    """
-    responses:
-      200:
-        description: Builds docker infrastructure
-    """
-
-    if agent == AgentGitSchema:
-        if (parsed_url := parse(AgentGitSchema.git_project_url)).valid is False:
-            print("[bold red]Invalid repository url![/bold red]")
-            return
-
-        installation_type = AgentGit(
-            access_token=AgentGitSchema.access_token,
-            username=AgentGitSchema.username,
-            package_name=AgentGitSchema.package_name,
-            host=parsed_url.host,
-            owner=parsed_url.owner,
-            repo_name=parsed_url.repo,
-        )
-    elif agent == AgentPypiSchema:
-        installation_type = AgentPypi(package_name=AgentPypiSchema.package_name)
-    else:
-        installation_type = AgentLocal(package_name=AgentLocalSchema.package_name, path=AgentLocalSchema.path)
-
+async def create_agent(agent, session, installation_type, response: Response):
     try:
-        await agent_controller.create_agent(agent.name, agent.role.value, installation_type)
-    except requests.ConnectionError as ex:
-        return {"message": f"Invalid url({agent.git_url}) for Agent", "exception": ex}
+        agent = await agent_controller.create_agent(agent.name, agent.role.value, installation_type, session)
+        return AgentOut(id=agent.id, name=agent.name, role=agent.role, type=agent.install_method.type)
+    except (
+        exceptions.ContainerNotRunning,
+        RuntimeError,
+        TypeError,
+    ) as ex:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"exception": ex}
 
-    return {"message": f"Agent {agent.name} has been created"}
+
+@router.post(
+    "/create/git/",
+    responses={201: {"description": "Object successfully created"}},
+    response_model=AgentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_git_agent(response: Response, agent: AgentGitSchema, session: DBSession):
+    if (parsed_url := parse(agent.git_project_url)).valid is False:
+        response.status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        return {"message": "Invalid repository url!"}
+
+    installation_type = AgentGit(
+        access_token=agent.access_token,
+        username=agent.username,
+        package_name=agent.package_name,
+        host=parsed_url.host,
+        owner=parsed_url.owner,
+        repo_name=parsed_url.repo,
+    )
+
+    return await create_agent(agent, session, installation_type, response)
 
 
-@router.get("/delete/{agent_id}")
-async def delete_agent(agent_id: int):
-    """
-    responses:
-      200:
-        description: Destroys docker infrastructure
-    """
+@router.post(
+    "/create/local/",
+    responses={201: {"description": "Object successfully created"}},
+    response_model=AgentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_local_agent(*, agent: AgentLocalSchema, session: DBSession, response: Response):
+    installation_type = AgentLocal(package_name=agent.package_name, path=agent.path)
+    return await create_agent(agent, session, installation_type, response)
+
+
+@router.post(
+    "/create/pypi/",
+    responses={201: {"description": "Object successfully created"}},
+    response_model=AgentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_pypi_agent(*, agent: AgentPypiSchema, session: DBSession, response: Response):
+    installation_type = AgentPypi(package_name=agent.package_name)
+    return await create_agent(agent, session, installation_type, response)
+
+
+@router.delete(
+    "/delete/{agent_id}/",
+    responses={204: {"description": "Object successfully deleted"}},
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_agent(agent_id: int, session: DBSession):
     try:
-        await agent_controller.delete_agent(agent_id)
+        await agent_controller.delete_agent(agent_id, session)
     except NoResultFound:
-        return {"message": f"Run with id {agent_id} ID doesn't exist!"}
+        return nonexistent_object_msg("Agent", agent_id)
 
     return {"message": f"Agent {agent_id} has been deleted"}
 
 
-@router.get("/")
-async def list_agent():
-    agents = await agent_controller.list_agents()
-    if agents:
-        response = {"message": []}
-        for agent in agents:
-            response["message"].append({"name": agent.name, "id": agent.id})
-        return response
-    else:
-        return {"message": "No agents have been created yet"}
+@router.get("/update/{agent_id}/")
+async def update_agent(agent_id: int, session: DBSession, response: Response):
+    try:
+        await agent_controller.update_agent(agent_id, session)
+    except NoResultFound:
+        return nonexistent_object_msg("Agent", agent_id)
+    except Exception as ex:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {"message": str(ex)}
+
+
+@router.get("/", response_model=list[AgentOut])
+async def list_agents(session: DBSession):
+    agents = await agent_controller.list_agents(session)
+
+    response = []
+    for agent in agents:
+        response.append(AgentOut(name=agent.name, id=agent.id, role=agent.role, type=agent.install_method.type))
+
+    return response

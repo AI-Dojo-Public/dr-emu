@@ -1,113 +1,119 @@
 import asyncio
+from typing import Sequence
+
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from dr_emu.controllers.infrastructure import InfrastructureController
-from dr_emu.database_config import session_factory
 from dr_emu.lib.logger import logger
 from dr_emu.models import Run, Agent, Template, Instance, Infrastructure, Node
 from dr_emu.lib.exceptions import NoAgents
-from docker.errors import ImageNotFound
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def create_run(name: str, template_id: int, agent_ids: list[int]) -> Run:
+async def create_run(name: str, template_id: int, agent_ids: list[int], db_session: AsyncSession) -> Run:
     """
     Create Run and save it to DB.
     :param name: Run name
     :param template_id: ID of Template that should be used in this Run
     :param agent_ids: IDs of agents that should be used in this Run
+    :param db_session: Async database session
     :return: Run object
     """
     logger.debug("Creating Run", name=name, template_id=template_id, agent_ids=agent_ids)
-    async with session_factory() as session:
-        agents = (await session.scalars(select(Agent).where(Agent.id.in_(agent_ids)))).all()
-        if not agents:
-            raise NoAgents()
-        template = (await session.execute(select(Template).where(Template.id == template_id))).scalar_one()
 
-        run = Run(name=name, template=template, agents=agents)
-        session.add(run)
-        await session.commit()
+    agents = (await db_session.scalars(select(Agent).where(Agent.id.in_(agent_ids)))).all()
+    if not agents:
+        raise NoAgents()
+    template = (await db_session.execute(select(Template).where(Template.id == template_id))).scalar_one()
+
+    run = Run(name=name, template=template, agents=agents)
+    db_session.add(run)
+    await db_session.commit()
 
     logger.info("Run created", name=run.name, id=run.id)
 
     return run
 
 
-async def list_runs() -> list[Run]:
+async def list_runs(db_session: AsyncSession) -> Sequence[Run]:
     """
     List all Runs saved in DB.
+    :param db_session: Async database session
     :return: list of Runs
     """
     logger.debug("Listing runs")
-    async with session_factory() as session:
-        runs = (await session.scalars(select(Run))).all()
+
+    runs = (await db_session.scalars(select(Run).options(joinedload(Run.agents)))).all()
 
     return runs
 
 
-async def delete_runs(run_id: int) -> Run:
+async def delete_runs(run_id: int, db_session: AsyncSession) -> Run:
     """
     Delete Run specified by ID from DB.
     :param run_id: Run ID
+    :param db_session: Async database session
     :return: deleted Run object
     """
     logger.debug("Deleting run", id=run_id)
-    async with session_factory() as session:
-        run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one()
-        await session.delete(run)
-        await session.commit()
+
+    run = (await db_session.execute(select(Run).where(Run.id == run_id))).scalar_one()
+    await db_session.delete(run)
+    await db_session.commit()
     logger.info("Run deleted", name=run.name, id=run.id)
     return run
 
 
-async def start_run(run_id: int, number_of_instances: int):
+async def start_run(run_id: int, number_of_instances: int, db_session: AsyncSession):
     """
     Start number of specified Run instances (infrastructure clones)
     :param run_id: ID of Run
     :param number_of_instances: number of instances to start
+    :param db_session: Async database session
     :return:
     :raises: sqlalchemy.exc.NoResultFound
     """
-    async with session_factory() as session:
-        run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one()
 
-    await InfrastructureController.build_infras(number_of_instances, run)
+    run = (await db_session.execute(select(Run).where(Run.id == run_id))).scalar_one()
+
+    await InfrastructureController.build_infras(number_of_instances, run, db_session)
 
 
-async def stop_run(run_id: int):
+async def stop_run(run_id: int, db_session: AsyncSession):
     """
     Stop all instances of this Run
     :param run_id:
+    :param db_session: Async database session
     :return:
     :raises: sqlalchemy.exc.NoResultFound
     """
-    async with session_factory() as session:
-        run = (
-            (
-                await session.execute(
-                    select(Run)
-                    .where(Run.id == run_id)
+
+    run = (
+        (
+            await db_session.execute(
+                select(Run)
+                .where(Run.id == run_id)
+                .options(
+                    joinedload(Run.instances)
+                    .subqueryload(Instance.infrastructure)
                     .options(
-                        joinedload(Run.instances)
-                        .subqueryload(Instance.infrastructure)
-                        .options(
-                            joinedload(Infrastructure.routers),
-                            joinedload(Infrastructure.nodes).subqueryload(Node.services),
-                            joinedload(Infrastructure.networks),
-                        )
+                        joinedload(Infrastructure.routers),
+                        joinedload(Infrastructure.nodes).subqueryload(Node.services),
+                        joinedload(Infrastructure.networks),
                     )
                 )
             )
-            .unique()
-            .scalar_one()
         )
+        .unique()
+        .scalar_one()
+    )
 
-        stop_instance_tasks = set()
+    stop_instance_tasks = set()
 
-        for instance in run.instances:
-            stop_instance_tasks.add(InfrastructureController.stop_infra(instance.infrastructure))
-            await session.delete(instance)
+    for instance in run.instances:
+        stop_instance_tasks.add(InfrastructureController.stop_infra(instance.infrastructure))
+        await db_session.delete(instance)
 
-        await asyncio.gather(*stop_instance_tasks)
-        await session.commit()
+    await asyncio.gather(*stop_instance_tasks)
+    await db_session.commit()

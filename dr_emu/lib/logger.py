@@ -10,7 +10,7 @@ LOGGER_DEBUG = "debug"
 LOGGER_PROD = "production"
 LOGGER_TESTING = "testing"
 
-if settings.DEBUG:
+if settings.settings.debug:
     logger_type = LOGGER_DEBUG
     logger_level = logging.DEBUG
 else:
@@ -63,7 +63,11 @@ logger_config = {
     "root": {"level": "NOTSET", "handlers": [], "propagate": True},
     "loggers": {
         "production": {"level": "INFO", "handlers": ["prod_logger"], "propagate": True},
-        "debug": {"level": "DEBUG", "handlers": ["debug_logger", "console"], "propagate": True},
+        "debug": {
+            "level": "DEBUG",
+            "handlers": ["debug_logger", "console"],
+            "propagate": True,
+        },
         "testing": {"level": "DEBUG", "handlers": ["console"], "propagate": False},
     },
 }
