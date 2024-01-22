@@ -7,7 +7,7 @@ from dr_emu.models import Base
 from asyncpg import Connection
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
-import sqlalchemy_utils
+from dr_emu.settings import settings
 
 
 # this is the Alembic Config object, which provides
@@ -23,7 +23,8 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    return os.getenv("DB_URL")
+    return (f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@{settings.db_host}/"
+            f"{settings.postgres_db}")
 
 
 def run_migrations_offline():

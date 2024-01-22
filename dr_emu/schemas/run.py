@@ -7,6 +7,5 @@ class Run(BaseModel):
     agent_ids: list[int]
 
 
-class RunOut(BaseModel):
-    name: str
+class RunOut(Run):
     id: int

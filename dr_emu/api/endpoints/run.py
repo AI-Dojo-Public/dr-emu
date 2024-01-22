@@ -25,7 +25,7 @@ router = APIRouter(
 )
 async def create_run(run: Run, session: DBSession, response: Response):
     try:
-        run = await run_controller.create_run(
+        run_model = await run_controller.create_run(
             name=run.name,
             agent_ids=run.agent_ids,
             template_id=run.template_id,
@@ -37,6 +37,12 @@ async def create_run(run: Run, session: DBSession, response: Response):
     except NoResultFound:
         response.status_code = status.HTTP_404_NOT_FOUND
         return nonexistent_object_msg("Template", run.template_id)
+    return RunOut(
+            id=run_model.id,
+            name=run_model.name,
+            template_id=run_model.template_id,
+            agent_ids=run.agent_ids,
+        )
 
 
 @router.delete(
@@ -78,7 +84,7 @@ async def stop_run(run_id: int, session: DBSession):
 
 
 @router.get("/", response_model=list[RunOut])
-async def list_runs(session: DBSession, response: Response):
+async def list_runs(session: DBSession):
     runs = await run_controller.list_runs(session)
     if runs:
         result = []
@@ -93,5 +99,4 @@ async def list_runs(session: DBSession, response: Response):
             result.append(run_info)
         return result
     else:
-        response.status_code = status.HTTP_404_NOT_FOUND
-        return {"message": "No runs have been created yet"}
+        return []

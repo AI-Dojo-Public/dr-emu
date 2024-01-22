@@ -44,7 +44,7 @@ async def list_runs(db_session: AsyncSession) -> Sequence[Run]:
     """
     logger.debug("Listing runs")
 
-    runs = (await db_session.scalars(select(Run).options(joinedload(Run.agents)))).all()
+    runs = (await db_session.scalars(select(Run).options(joinedload(Run.agents)))).unique().all()
 
     return runs
 
