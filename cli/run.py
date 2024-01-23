@@ -87,7 +87,7 @@ def start_run(
     ) as progress:
         progress.add_task(description="Building Infrastructures", total=None)
         response = clm.api_get(
-            Run.start, run_id, {"instances": number_of_instances}, timeout=number_of_instances * 120.0
+            Run.start, run_id, {"instances": number_of_instances}, timeout=number_of_instances * 300.0
         )
         if response.status_code == 200:
             print(f"[bold green]{number_of_instances} Run instances has started[/bold green]")
