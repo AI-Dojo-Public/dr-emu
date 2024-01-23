@@ -454,6 +454,8 @@ class InfrastructureController:
             try:
                 controller_start_tasks.add(asyncio.create_task(controller.start()))
                 await asyncio.gather(*controller_start_tasks)
+                db_session.add(run_instance)
+                await db_session.commit()
             except (ImageNotFound, APIError, RuntimeError, Exception) as error:
                 logger.debug(
                     f"Deleting instance due to {type(error).__name__}",
@@ -466,9 +468,6 @@ class InfrastructureController:
                 except NullResource:
                     pass
                 raise error
-
-            db_session.add(run_instance)
-            await db_session.commit()
 
     @staticmethod
     async def stop_infra(infrastructure: Infrastructure):
