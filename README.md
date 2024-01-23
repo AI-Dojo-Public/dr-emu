@@ -47,6 +47,9 @@ Application also has a command line interface. CLI is accessible from applicatio
 docker exec -it aidojo-app /bin/sh
 ```
 ```
+poetry shell
+```
+```
 dr-emu --help
 ```
 
