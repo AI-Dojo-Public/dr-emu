@@ -440,6 +440,7 @@ class Node(Appliance):
     services: Mapped[list["Service"]] = relationship(back_populates="parent_node", cascade="all, delete-orphan")
     ipc_mode: Mapped[str] = mapped_column(default="shareable", nullable=True)
     infrastructure: Mapped["Infrastructure"] = relationship(back_populates="nodes")
+    depends_on: Mapped[dict] = mapped_column(JSONType, default={})
 
     __mapper_args__ = {
         "polymorphic_identity": "node",
@@ -569,7 +570,7 @@ class Service(DockerContainerMixin, Base):
 
     parent_node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
     parent_node: Mapped["Node"] = relationship(back_populates="services")
-    dependencies: Mapped[list["DependsOn"]] = relationship(
+    dependencies: Mapped[list["DependsOn"]] = relationship(  # TODO: is this the same as depends_on in Node?
         back_populates="dependant",
         foreign_keys="DependsOn.dependant_service_id",
         cascade="all, delete-orphan",

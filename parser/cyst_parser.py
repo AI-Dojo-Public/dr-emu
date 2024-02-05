@@ -108,6 +108,11 @@ class CYSTParser:
             environment = envs if (envs := constants.envs.get(cyst_node.id)) is not None else {}
             command = container[constants.COMMAND] if (container := constants.TESTBED_INFO.get(cyst_node.id)) else []
 
+            try:  # TODO: unused
+                depends_on = constants.TESTBED_INFO[cyst_node.id][constants.DEPENDS_ON]
+            except KeyError:
+                depends_on = {}
+
             try:
                 healthcheck = constants.TESTBED_INFO[cyst_node.id][constants.HEALTHCHECK]
             except KeyError:
@@ -156,6 +161,11 @@ class CYSTParser:
             configuration = await self.get_service_configuration(cyst_service.id)
             environment = envs if (envs := constants.envs.get(cyst_service.id)) is not None else {}
             command = container[constants.COMMAND] if (container := constants.TESTBED_INFO.get(cyst_service.id)) else []
+
+            try:  # TODO: unused
+                depends_on = constants.TESTBED_INFO[cyst_service.id][constants.DEPENDS_ON]
+            except KeyError:
+                depends_on = {}
 
             try:
                 healthcheck = constants.TESTBED_INFO[cyst_service.id][constants.HEALTHCHECK]
