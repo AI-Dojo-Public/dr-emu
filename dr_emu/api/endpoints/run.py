@@ -59,7 +59,7 @@ async def delete_run(run_id: int, session: DBSession, response: Response):
 
 
 # Make a data stream for checks that the run is still building
-@router.get("/start/{run_id}/")
+@router.post("/start/{run_id}/")
 async def start_run(session: DBSession, run_id: int, response: Response, instances: int = 1):
     try:
         await run_controller.start_run(run_id, instances, session)
@@ -73,7 +73,7 @@ async def start_run(session: DBSession, run_id: int, response: Response, instanc
     return {"message": f"{instances} Run instances created"}
 
 
-@router.get("/stop/{run_id}/")
+@router.post("/stop/{run_id}/")
 async def stop_run(run_id: int, session: DBSession):
     try:
         await run_controller.stop_run(run_id, session)

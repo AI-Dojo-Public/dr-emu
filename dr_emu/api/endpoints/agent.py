@@ -93,7 +93,7 @@ async def delete_agent(agent_id: int, session: DBSession):
     return {"message": f"Agent {agent_id} has been deleted"}
 
 
-@router.get("/update/{agent_id}/")
+@router.post("/update/{agent_id}/")
 async def update_agent(agent_id: int, session: DBSession, response: Response):
     try:
         await agent_controller.update_agent(agent_id, session)

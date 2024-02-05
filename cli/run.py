@@ -86,7 +86,7 @@ def start_run(
         transient=True,
     ) as progress:
         progress.add_task(description="Building Infrastructures", total=None)
-        response = clm.api_get(
+        response = clm.api_post(
             Run.start, run_id, {"instances": number_of_instances}, timeout=number_of_instances * 300.0
         )
         if response.status_code == 200:
@@ -112,7 +112,7 @@ def stop_run(
         transient=True,
     ) as progress:
         progress.add_task(description="Deleting Instances", total=None)
-        response = clm.api_get(Run.stop, run_id, timeout=120.0)
+        response = clm.api_post(Run.stop, run_id, timeout=120.0)
         if response.status_code == 200:
             print(f"[bold green]All Run instances stopped[/bold green]")
         else:

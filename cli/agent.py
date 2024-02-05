@@ -46,7 +46,7 @@ def update_agent(
     """
     Update agent package
     """
-    response = clm.api_get(Agent.update, agent_id)
+    response = clm.api_post(Agent.update, agent_id)
     if response == 200:
         print(f"Agent with id: {agent_id} has been updated")
     else:
