@@ -11,6 +11,8 @@ RUN apk add --no-cache \
     iptables
 
 FROM docker:latest as aidojo-app
+ARG POETRY_VIRTUALENVS_IN_PROJECT
+ENV POETRY_VIRTUALENVS_IN_PROJECT $POETRY_VIRTUALENVS_IN_PROJECT
 
 # Copy app
 COPY . /app/

@@ -368,9 +368,7 @@ class InfrastructureController:
         controller.infrastructure.networks.append(management_network)
 
         if set(available_networks) != {network.ipaddress for network in controller.infrastructure.networks}:
-            await asyncio.gather(
-                controller.change_ipadresses(available_networks),
-            )
+            await asyncio.gather(controller.change_ipadresses(available_networks))
             logger.debug(
                 "IP addresses changed for new infrastructure",
                 infrastructure_name=infrastructure.name,
