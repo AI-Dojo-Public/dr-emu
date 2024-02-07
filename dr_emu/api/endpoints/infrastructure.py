@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Response, status, HTTPException
 from sqlalchemy.exc import NoResultFound
 
+from dr_emu.api import constants
 from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers.infrastructure import InfrastructureController
@@ -24,7 +25,10 @@ async def destroy_infra(infrastructure_id: int, session: DBSession):
     try:
         infrastructure = await InfrastructureController.get_infra(infrastructure_id, session)
     except NoResultFound:
-        return {"message": f"Infrastructure with id: {infrastructure_id} doesn't exist"}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=nonexistent_object_msg(constants.INFRASTRUCTURE, infrastructure_id),
+        )
 
     await InfrastructureController.stop_infra(infrastructure)
     await InfrastructureController.delete_infra(infrastructure, session)
@@ -38,7 +42,7 @@ async def list_infrastructures(session: DBSession):
 
 
 @router.get("/get/{infrastructure_id}/", response_model=InfrastructureInfo)
-async def get_infra(infrastructure_id: int, session: DBSession, response: Response):
+async def get_infra(infrastructure_id: int, session: DBSession):
     try:
         infrastructure = await InfrastructureController.get_infra_info(infrastructure_id, session)
 
@@ -54,5 +58,7 @@ async def get_infra(infrastructure_id: int, session: DBSession, response: Respon
         return infra_info
 
     except NoResultFound:
-        response.status_code = status.HTTP_404_NOT_FOUND
-        return nonexistent_object_msg("Infrastructure", infrastructure_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=nonexistent_object_msg(constants.INFRASTRUCTURE, infrastructure_id),
+        )

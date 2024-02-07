@@ -1,5 +1,5 @@
 from docker.errors import ImageNotFound
-from fastapi import APIRouter, status, Response
+from fastapi import APIRouter, HTTPException, status, Response
 from sqlalchemy.exc import NoResultFound
 
 from dr_emu.api.dependencies.core import DBSession
@@ -7,6 +7,7 @@ from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import run as run_controller
 from dr_emu.lib.exceptions import NoAgents
 from dr_emu.schemas.run import Run, RunOut
+from dr_emu.api import constants
 
 router = APIRouter(
     prefix="/runs",
@@ -21,9 +22,9 @@ router = APIRouter(
     "/create/",
     status_code=status.HTTP_201_CREATED,
     responses={201: {"description": "Object successfully created"}},
-    response_model=RunOut
+    response_model=RunOut,
 )
-async def create_run(run: Run, session: DBSession, response: Response):
+async def create_run(run: Run, session: DBSession):
     try:
         run_model = await run_controller.create_run(
             name=run.name,
@@ -32,17 +33,19 @@ async def create_run(run: Run, session: DBSession, response: Response):
             db_session=session,
         )
     except NoAgents:
-        response.status_code = status.HTTP_404_NOT_FOUND
-        return nonexistent_object_msg("Agent", run.agent_ids)
-    except NoResultFound:
-        response.status_code = status.HTTP_404_NOT_FOUND
-        return nonexistent_object_msg("Template", run.template_id)
-    return RunOut(
-            id=run_model.id,
-            name=run_model.name,
-            template_id=run_model.template_id,
-            agent_ids=run.agent_ids,
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.AGENT, run.agent_ids)
         )
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.TEMPLATE, run.template_id)
+        )
+    return RunOut(
+        id=run_model.id,
+        name=run_model.name,
+        template_id=run_model.template_id,
+        agent_ids=run.agent_ids,
+    )
 
 
 @router.delete(
@@ -50,25 +53,22 @@ async def create_run(run: Run, session: DBSession, response: Response):
     status_code=status.HTTP_204_NO_CONTENT,
     responses={204: {"description": "Object successfully deleted"}},
 )
-async def delete_run(run_id: int, session: DBSession, response: Response):
+async def delete_run(run_id: int, session: DBSession, ):
     try:
         await run_controller.delete_runs(run_id, session)
     except NoResultFound:
-        response.status_code = status.HTTP_404_NOT_FOUND
-        return nonexistent_object_msg("Run", run_id)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
 
 
 # Make a data stream for checks that the run is still building
 @router.post("/start/{run_id}/")
-async def start_run(session: DBSession, run_id: int, response: Response, instances: int = 1):
+async def start_run(session: DBSession, run_id: int, instances: int = 1):
     try:
         await run_controller.start_run(run_id, instances, session)
     except NoResultFound:
-        response.status_code = status.HTTP_404_NOT_FOUND
-        return nonexistent_object_msg("Run", run_id)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
     except (ImageNotFound, RuntimeError, Exception) as ex:
-        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        return {"message": str(ex)}
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
 
     return {"message": f"{instances} Run instances created"}
 
@@ -78,7 +78,7 @@ async def stop_run(run_id: int, session: DBSession):
     try:
         await run_controller.stop_run(run_id, session)
     except NoResultFound:
-        return nonexistent_object_msg("Run", run_id)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
 
     return {"message": f"All instances of Run {run_id} has been stopped"}
 

@@ -809,7 +809,9 @@ class Agent(Base):
     __tablename__ = "agent"
     name: Mapped[str] = mapped_column()
     role: Mapped[str] = mapped_column()  # Defender or Attacker
-    install_method: Mapped["AgentInstallationMethod"] = relationship(back_populates="agent")
+    install_method: Mapped["AgentInstallationMethod"] = relationship(
+        back_populates="agent", cascade="all, delete-orphan"
+    )
     runs: Mapped[list["Run"]] = relationship(secondary=agent_association_table, back_populates="agents")
 
     @staticmethod

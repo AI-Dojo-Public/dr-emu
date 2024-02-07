@@ -7,9 +7,11 @@ from typing_extensions import Annotated
 
 from cli.config.config import clm
 from cli.config.endpoints import Run
+from cli.config import constants
 from dr_emu.schemas.run import Run as RunSchema
 
-run_typer = typer.Typer()
+
+run_typer = typer.Typer(no_args_is_help=True)
 
 
 @run_typer.command("create")
@@ -34,11 +36,7 @@ def create_run(
         Run.create,
         data=RunSchema(name=name, template_id=template_id, agent_ids=agent_ids).model_dump_json(),
     )
-    if response.status_code == 201:
-        print(f"[bold green]Run created successfully[/bold green]")
-        print(response.json())
-    else:
-        print(f"[bold red]{response.text}[/bold red]")
+    clm.print_non_get_message(response, constants.RUN, 201)
 
 
 @run_typer.command("list")
@@ -46,7 +44,8 @@ def list_runs():
     """
     List all Runs.
     """
-    return clm.api_get_data(Run.list)
+    response = clm.api_get(Run.list)
+    clm.print_get_message(response)
 
 
 @run_typer.command("delete")
@@ -60,10 +59,7 @@ def delete_run(
     Delete Run based on the provided ID.
     """
     response = clm.api_delete(Run.delete, run_id)
-    if response.status_code == 204:
-        print(f"Run {run_id} deleted successfully")
-    else:
-        print(f"[bold red]{response.text}[/bold red]")
+    clm.print_non_get_message(response, constants.RUN, 204, run_id)
 
 
 @run_typer.command("start")
@@ -89,10 +85,7 @@ def start_run(
         response = clm.api_post(
             Run.start, run_id, {"instances": number_of_instances}, timeout=number_of_instances * 300.0
         )
-        if response.status_code == 200:
-            print(f"[bold green]{number_of_instances} Run instances has started[/bold green]")
-        else:
-            print(f"[bold red]{response.text}![/bold red]")
+    clm.print_non_get_message(response, constants.RUN, 200, run_id, "started")
 
 
 @run_typer.command("stop")
@@ -103,7 +96,7 @@ def stop_run(
     ]
 ):
     """
-    Start defined number of instances of created Run.
+    Stop all running instances of specified Run.
     """
 
     with Progress(
@@ -113,7 +106,4 @@ def stop_run(
     ) as progress:
         progress.add_task(description="Deleting Instances", total=None)
         response = clm.api_post(Run.stop, run_id, timeout=120.0)
-        if response.status_code == 200:
-            print(f"[bold green]All Run instances stopped[/bold green]")
-        else:
-            print(f"[bold red]Run with id {run_id} ID doesn't exist![/bold red]")
+    clm.print_non_get_message(response, constants.RUN, 200, run_id, "stopped")

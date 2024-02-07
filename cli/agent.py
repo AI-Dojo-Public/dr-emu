@@ -4,6 +4,7 @@ from rich import print
 from typing_extensions import Annotated
 
 from cli.config.config import clm
+from cli.config import constants
 from cli.config.endpoints import Agent
 from dr_emu.lib.util import AgentRole
 from dr_emu.schemas.agent import (
@@ -12,8 +13,8 @@ from dr_emu.schemas.agent import (
     AgentGitSchema,
 )
 
-agent_typer = typer.Typer()
-source_typer = typer.Typer()
+agent_typer = typer.Typer(no_args_is_help=True)
+source_typer = typer.Typer(no_args_is_help=True)
 agent_typer.add_typer(source_typer, name="create", help="Select source for Agent installation")
 
 
@@ -22,10 +23,8 @@ def create_agent(agent_schema: AgentPypiSchema | AgentGitSchema | AgentLocalSche
     Create Agent.
     """
 
-    response = clm.api_post(endpoint, data=agent_schema.model_dump_json())
-    if response.status_code == 201:
-        print("[bold green]Agent created[/bold green]")
-        print(response.json())
+    response = clm.api_post(endpoint, data=agent_schema.model_dump_json(), timeout=30.0)
+    clm.print_non_get_message(response, constants.AGENT, 201)
 
 
 @agent_typer.command("list")
@@ -33,7 +32,8 @@ def list_agents():
     """
     List all Agents.
     """
-    print(clm.api_get_data(Agent.list))
+    response = clm.api_get(Agent.list)
+    clm.print_get_message(response)
 
 
 @agent_typer.command("update")
@@ -47,10 +47,7 @@ def update_agent(
     Update agent package
     """
     response = clm.api_post(Agent.update, agent_id)
-    if response == 200:
-        print(f"Agent with id: {agent_id} has been updated")
-    else:
-        print(response.text)
+    clm.print_non_get_message(response, constants.AGENT, agent_id, 200, "updated")
 
 
 @agent_typer.command("delete")
@@ -64,10 +61,7 @@ def delete_agent(
     Delete Agent based on the provided ID.
     """
     response = clm.api_delete(Agent.delete, agent_id)
-    if response.status_code == 204:
-        print(f"Agent with id: {agent_id} has been deleted")
-    else:
-        print(response.text)
+    clm.print_non_get_message(response, constants.AGENT, 204, agent_id)
 
 
 @source_typer.command("git")

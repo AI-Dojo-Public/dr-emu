@@ -5,10 +5,11 @@ from typer import Typer
 from typing_extensions import Annotated
 
 from cli.config.config import clm
+from cli.config import constants
 from cli.config.endpoints import Template
 from dr_emu.schemas.template import TemplateSchema
 
-template_typer = Typer()
+template_typer = Typer(no_args_is_help=True)
 console = Console()
 
 
@@ -23,14 +24,10 @@ def create_template(
         typer.Argument(help="Path to a file with cyst infrastructure description"),
     ],
 ):
-    r = clm.api_post(
+    response = clm.api_post(
         endpoint_url=Template.create, data=TemplateSchema(name=name, description=infra_description).model_dump_json()
     )
-    if r.status_code == 201:
-        print(f"Template created successfully")
-        print(r.json())
-    else:
-        print(r.text)
+    clm.print_non_get_message(response, constants.TEMPLATE, 201)
 
 
 @template_typer.command("list")
@@ -38,8 +35,8 @@ def list_templates():
     """
     List all Templates.
     """
-    result = clm.api_get_data(endpoint_url=Template.list)
-    console.print(result)
+    result = clm.api_get(endpoint_url=Template.list)
+    clm.print_get_message(result)
 
 
 @template_typer.command("delete")
@@ -53,8 +50,5 @@ def delete_template(
     Delete Template based on the provided ID.
     """
 
-    response = clm.api_delete(endpoint_url=Template.list, object_id=template_id)
-    if response.status_code == 204:
-        print(f"Template with id: {template_id} has been deleted")
-    else:
-        print(response.text)
+    response = clm.api_delete(endpoint_url=Template.delete, object_id=template_id)
+    clm.print_non_get_message(response, constants.TEMPLATE, 204, template_id)
