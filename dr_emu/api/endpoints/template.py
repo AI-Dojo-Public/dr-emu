@@ -1,6 +1,7 @@
-from fastapi import APIRouter, status, Response
+from fastapi import APIRouter, status, Response, HTTPException
 from sqlalchemy.exc import NoResultFound
 
+from dr_emu.api import constants
 from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import template as template_controller
@@ -46,8 +47,9 @@ async def delete_template(template_id: int, session: DBSession, response: Respon
     try:
         await template_controller.delete_template(template_id, session)
     except NoResultFound:
-        response.status_code = status.HTTP_404_NOT_FOUND
-        return nonexistent_object_msg("Template", template_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.TEMPLATE, template_id)
+        )
 
 
 @router.get("/", response_model=list[TemplateOut])

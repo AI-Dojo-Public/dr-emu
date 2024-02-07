@@ -1,8 +1,19 @@
+from enum import Enum
+
 import httpx
 from pydantic_settings import BaseSettings
 from rich import print
 from rich.table import Table
 from rich.text import Text
+from rich.style import Style
+from rich.console import Console
+import json
+
+console = Console()
+error = Style(color="red", bold=True)
+success = Style(color="green", bold=True)
+
+success_message = {201: "created", 204: "deleted"}
 
 
 class SettingsAPI(BaseSettings):
@@ -29,53 +40,75 @@ class CLIManager:
         try:
             return httpx.delete(self._build_request_url(endpoint_url, object_id))
         except httpx.ReadTimeout:
-            print("[bold read]Connection timeout![/bold read]")
+            return "Connection timeout!"
+        except httpx.ConnectError as conn_err:
+            return str(conn_err)
 
-    def api_get_data(self, endpoint_url: str, object_id: int = None, parameters: dict = None):
+    def api_get(self, endpoint_url: str, object_id: int = None, parameters: dict = None):
         try:
-            response = httpx.get(self._build_request_url(endpoint_url, object_id, parameters)).json()
-            if type(response) is list:
-                return self.table_from_list(response)
-            else:
-                text = Text()
-                for key, value in response.items():
-                    text += f"{key}: {value}\n"
-                return text
+            return httpx.get(self._build_request_url(endpoint_url, object_id, parameters))
         except httpx.ReadTimeout:
-            print("[bold read]Connection timeout![/bold read]")
-
-    def api_get(
-        self,
-        endpoint_url: str,
-        object_id: int = None,
-        parameters: dict = None,
-        timeout: float = 5.0,
-    ):
-        try:
-            return httpx.get(self._build_request_url(endpoint_url, object_id, parameters), timeout=timeout)
-        except httpx.ReadTimeout:
-            print("[bold read]Connection timeout![/bold read]")
+            return "Connection timeout!"
+        except httpx.ConnectError as conn_err:
+            return str(conn_err)
 
     def api_post(
-        self,
-        endpoint_url: str,
-        object_id: int = None,
-        data: dict = None,
-        files: dict = None,
-        timeout: float = 5.0,
+        self, endpoint_url: str, object_id: int = None, data: dict = None, files: dict = None, timeout: float = 5.0
     ):
         try:
             return httpx.post(
-                url=self._build_request_url(endpoint_url, object_id),
-                data=data,
-                files=files,
-                timeout=timeout
+                url=self._build_request_url(endpoint_url, object_id), data=data, files=files, timeout=timeout
             )
         except httpx.ReadTimeout:
-            print("Connection Timeout")
+            return "Connection timeout!"
+        except httpx.ConnectError as conn_err:
+            return str(conn_err)
+
+    def print_get_message(self, response: httpx.Response | str):
+        if isinstance(response, httpx.Response):
+            response_json = response.json()
+            if type(response_json) is list:
+                console.print(self.table_from_list(response_json))
+            else:
+                console.print(response_json, style=error)
+        else:
+            console.print(response, style=error)
+
+    @staticmethod
+    def print_non_get_message(
+        response: httpx.Response | str,
+        model_name: str,
+        correct_code: int,
+        model_id: int | None = None,
+        action: str | None = None,
+    ):
+
+        if action is None:
+            action = success_message.get(correct_code)
+
+        if isinstance(response, str):
+            console.print(response, style=error)
+        elif isinstance(response, httpx.Response):
+            try:
+                response_message = response.json()
+            except json.decoder.JSONDecodeError:
+                response_message = response.text
+
+            if response.status_code == correct_code:
+                if model_id is None and (model_id := response_message.get("id")) is None:
+                    console.print(f"{model_name} has been {action}", style=success)
+                else:
+                    console.print(f"{model_name} with id: {model_id} has been {action}", style=success)
+
+            # TODO: what if some model is going to have "message" attribute?
+            if response_message and not response_message.get("message"):
+                console.print(response_message)
 
     @staticmethod
     def table_from_list(list_response):
+        if not list_response:
+            return list_response
+
         table = Table(*list_response[0].keys())
         for template in list_response:
             table.add_row(*map(str, template.values()))

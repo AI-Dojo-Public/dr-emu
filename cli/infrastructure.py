@@ -5,7 +5,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from cli.config.config import clm
 from cli.config.endpoints import Infrastructure
 
-infras_typer = typer.Typer()
+infras_typer = typer.Typer(no_args_is_help=True)
 
 
 @infras_typer.command("delete")
@@ -38,7 +38,7 @@ def list_infras():
     """
     List infrastructures id:name key values.
     """
-    print(clm.api_get_data(Infrastructure.list))
+    print(clm.api_get(Infrastructure.list))
 
 
 @infras_typer.command("get")

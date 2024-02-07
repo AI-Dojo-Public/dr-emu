@@ -6,7 +6,7 @@ from cli.template import template_typer
 from typer import Typer
 
 
-app = Typer()
+app = Typer(no_args_is_help=True)
 app.add_typer(infras_typer, name="infrastructures")
 app.add_typer(run_typer, name="runs")
 app.add_typer(agent_typer, name="agents")
