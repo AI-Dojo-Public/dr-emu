@@ -1,12 +1,11 @@
 import typer
-from rich import print
 from rich.console import Console
 from typer import Typer
 from typing_extensions import Annotated
 
 from cli.config.config import clm
-from cli.config import constants
-from cli.config.endpoints import Template
+from shared import constants
+from shared.endpoints import Template
 from dr_emu.schemas.template import TemplateSchema
 
 template_typer = Typer(no_args_is_help=True)

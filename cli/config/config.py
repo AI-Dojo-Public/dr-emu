@@ -66,11 +66,15 @@ class CLIManager:
 
     def print_get_message(self, response: httpx.Response | str):
         if isinstance(response, httpx.Response):
-            response_json = response.json()
-            if type(response_json) is list:
-                console.print(self.table_from_list(response_json))
+            try:
+                response_message = response.json()
+            except json.decoder.JSONDecodeError:
+                response_message = response.text
+
+            if type(response_message) is list:
+                console.print(self.table_from_list(response_message))
             else:
-                console.print(response_json, style=error)
+                console.print(response_message, style=error)
         else:
             console.print(response, style=error)
 
@@ -82,7 +86,6 @@ class CLIManager:
         model_id: int | None = None,
         action: str | None = None,
     ):
-
         if action is None:
             action = success_message.get(correct_code)
 

@@ -1,5 +1,5 @@
 from docker.errors import ImageNotFound
-from fastapi import APIRouter, HTTPException, status, Response
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import NoResultFound
 
 from dr_emu.api.dependencies.core import DBSession
@@ -7,7 +7,7 @@ from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import run as run_controller
 from dr_emu.lib.exceptions import NoAgents
 from dr_emu.schemas.run import Run, RunOut
-from dr_emu.api import constants
+from shared import constants
 
 router = APIRouter(
     prefix="/runs",
@@ -55,7 +55,7 @@ async def create_run(run: Run, session: DBSession):
 )
 async def delete_run(run_id: int, session: DBSession, ):
     try:
-        await run_controller.delete_runs(run_id, session)
+        await run_controller.delete_run(run_id, session)
     except NoResultFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
 

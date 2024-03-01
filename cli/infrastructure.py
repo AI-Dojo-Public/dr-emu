@@ -3,7 +3,7 @@ from typing_extensions import Annotated
 
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from cli.config.config import clm
-from cli.config.endpoints import Infrastructure
+from shared.endpoints import Infrastructure
 
 infras_typer = typer.Typer(no_args_is_help=True)
 

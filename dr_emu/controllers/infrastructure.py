@@ -54,10 +54,10 @@ class InfrastructureController:
     async def get_infra(infrastructure_id, db_session: AsyncSession):
         # Exception handled in outer function
         return (
-            (await db_session.execute(select(Infrastructure).where(Infrastructure.id == infrastructure_id)))
-            .unique()
-            .scalar_one()
-        )
+                (await db_session.execute(select(Infrastructure).where(Infrastructure.id == infrastructure_id)))
+                .unique()
+                .scalar_one()
+            )
 
     async def start(self):
         """
@@ -131,7 +131,7 @@ class InfrastructureController:
 
         routers = self.infrastructure.routers
         router_configure_tasks = {
-            asyncio.create_task(router.configure(routers)) for router in self.infrastructure.routers
+            asyncio.create_task(router.configure(routers)) for router in routers
         }
 
         logger.debug("Appliances configured", infrastructure_id=self.infrastructure.id)
