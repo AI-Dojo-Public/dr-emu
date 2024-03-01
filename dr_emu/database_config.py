@@ -12,24 +12,13 @@ from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
 )
-from sqlalchemy.orm import declarative_base
 
+from dr_emu.models import Base
 from dr_emu.settings import settings
 
 BASE_DIR = Path(__file__).parent.parent.parent
 
-async_engine = create_async_engine(
-    url=f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@{settings.db_host}/"
-    f"{settings.postgres_db}",
-    future=True,
-    poolclass=AsyncAdaptedQueuePool,
-    pool_size=5,
-    max_overflow=2,
-    echo=False,
-)
-
 # Source: https://praciano.com.br/fastapi-and-async-sqlalchemy-20-with-pytest-done-right.html
-Base = declarative_base()
 
 
 class DatabaseSessionManager:
@@ -77,15 +66,16 @@ class DatabaseSessionManager:
         finally:
             await session.close()
 
-    # Used for testing
-    @staticmethod
-    async def create_all(connection: AsyncConnection):
-        await connection.run_sync(Base.metadata.create_all)
 
-    @staticmethod
-    async def drop_all(connection: AsyncConnection):
-        await connection.run_sync(Base.metadata.drop_all)
-
+async_engine = create_async_engine(
+    url=f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@{settings.db_host}/"
+    f"{settings.postgres_db}",
+    future=True,
+    poolclass=AsyncAdaptedQueuePool,
+    pool_size=5,
+    max_overflow=2,
+    echo=False,
+)
 
 sessionmanager = DatabaseSessionManager(async_engine)
 

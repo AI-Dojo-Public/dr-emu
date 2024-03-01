@@ -22,6 +22,6 @@ class Run:
 
 
 class Infrastructure:
-    get = "/infrastructure/get/{}/"
-    delete = "/infrastructure/delete/{}/"
-    list = "/infrastructure/list/"
+    get = "/infrastructures/get/{}/"
+    delete = "/infrastructures/delete/{}/"
+    list = "/infrastructures/"

@@ -34,7 +34,7 @@ force_instant_defaults()
 
 
 class Base(AsyncAttrs, DeclarativeBase):
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
 
 
 class DockerMixin:

@@ -3,7 +3,6 @@ from typing import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
-
 from dr_emu.controllers.infrastructure import InfrastructureController
 from dr_emu.lib.logger import logger
 from dr_emu.models import Run, Agent, Template, Instance, Infrastructure, Node
@@ -49,7 +48,7 @@ async def list_runs(db_session: AsyncSession) -> Sequence[Run]:
     return runs
 
 
-async def delete_runs(run_id: int, db_session: AsyncSession) -> Run:
+async def delete_run(run_id: int, db_session: AsyncSession) -> Run:
     """
     Delete Run specified by ID from DB.
     :param run_id: Run ID

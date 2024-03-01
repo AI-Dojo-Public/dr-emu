@@ -94,7 +94,7 @@ class CYSTParser:
                 interfaces.append(
                     Interface(
                         ipaddress=interface.ip,
-                        network=(await self.find_network(interface.net)),
+                        network=await self.find_network(interface.net),
                     )
                 )
 
@@ -170,7 +170,7 @@ class CYSTParser:
             try:
                 healthcheck = constants.TESTBED_INFO[cyst_service.id][constants.HEALTHCHECK]
             except KeyError:
-                healthcheck = {}
+                healthcheck = dict()
 
             service = Service(
                 name=cyst_service.id,
@@ -200,7 +200,7 @@ class CYSTParser:
 
             router_type = "perimeter" if cyst_router.id == "perimeter_router" else "internal"
 
-            # TODO: Better FirewallRule extraction if there will different cyst configuration
+            # TODO: Better FirewallRule extraction if there will be different cyst configuration
             for firewall_rule in cyst_router.traffic_processors[0].chains[0].rules:
                 destination = await self.find_network(firewall_rule.dst_net)
                 source = await self.find_network(firewall_rule.src_net)

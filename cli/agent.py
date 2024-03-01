@@ -4,8 +4,8 @@ from rich import print
 from typing_extensions import Annotated
 
 from cli.config.config import clm
-from cli.config import constants
-from cli.config.endpoints import Agent
+from shared import constants
+from shared.endpoints import Agent
 from dr_emu.lib.util import AgentRole
 from dr_emu.schemas.agent import (
     AgentLocalSchema,

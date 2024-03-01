@@ -1,7 +1,7 @@
 from fastapi import APIRouter, status, Response, HTTPException
 from sqlalchemy.exc import NoResultFound
 
-from dr_emu.api import constants
+from shared import constants
 from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import template as template_controller

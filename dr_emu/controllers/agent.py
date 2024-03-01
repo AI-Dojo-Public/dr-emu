@@ -81,9 +81,9 @@ async def delete_agent(agent_id: int, db_session: AsyncSession) -> Agent:
     :return: deleted Agent object.
     """
     logger.debug("Deleting agent", id=agent_id)
+
     agent = (await db_session.execute(select(Agent).where(Agent.id == agent_id))).scalar_one()
     await db_session.delete(agent)
     await db_session.commit()
-
     logger.info("Agent deleted", id=agent.id, name=agent.name)
     return agent
