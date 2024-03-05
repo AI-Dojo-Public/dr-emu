@@ -1,0 +1,46 @@
+default:
+  interruptible: true
+  artifacts:
+    expire_in: 30 days
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+
+
+.tests:
+  stage: test
+  image: debian:stable-slim
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  rules:
+    - changes:
+        - dr_emu/**/*
+        - tests/**/*
+        - parser/**/*
+        - cli/**/*
+        - alembic/**/*
+        - shared/**/*
+        - alembic.ini
+        - .gitlab-ci.yml
+        - poetry.lock
+        - pyproject.toml
+    - when: never
+  before_script:
+    - export $(grep -v '^#' .env | xargs)
+    - apt update
+    - apt install -y build-essential curl python3-dev g++ gcc
+    - curl -sSL https://install.python-poetry.org | python3 -
+    - export PATH="/root/.local/bin:$PATH"
+    - poetry install
+
+
+unit_tests:
+  extends: .tests
+  script:
+    - poetry run pytest tests/unit/
+
+integration_tests:
+  extends: .tests
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+  script:
+    - poetry run pytest tests/integration/

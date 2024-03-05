@@ -26,7 +26,6 @@ from sqlalchemy_utils import force_instant_defaults, ScalarListType, JSONType
 
 from dr_emu.lib.exceptions import ContainerNotRunning, PackageNotAccessible
 from dr_emu.lib.logger import logger
-from dr_emu.resources import docker_client
 from parser.util import constants
 
 # TODO: add init methods with defaults to models instead of this?
@@ -44,8 +43,15 @@ class DockerMixin:
 
     docker_id: Mapped[str] = mapped_column()
     name: Mapped[str] = mapped_column()
-    client: DockerClient = docker_client
+    _client: DockerClient = None
     kwargs: Mapped[Optional[dict]] = mapped_column(JSONType, nullable=True)
+    
+    @property
+    def client(self):
+        # testing issue
+        if self._client is None:
+            self._client = docker.from_env()
+        return self._client
 
     @abstractmethod
     async def create(self):
@@ -819,7 +825,7 @@ class Agent(Base):
         """
         Execute agent related command on CYST container.
         """
-        if (cyst_container := docker_client.containers.get("cyst-demo")).status != "running":
+        if (cyst_container := docker.from_env().containers.get("cyst-demo")).status != "running":
             raise ContainerNotRunning("Docker container with CYST is not running")
 
         result = await asyncio.to_thread(cyst_container.exec_run, command)
