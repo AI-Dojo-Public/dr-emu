@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import (
     AsyncEngine,
 )
 
-from dr_emu.models import Base
 from dr_emu.settings import settings
 
 BASE_DIR = Path(__file__).parent.parent.parent

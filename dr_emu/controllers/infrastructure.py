@@ -3,7 +3,6 @@ from typing import Union, Optional, Sequence
 
 import randomname
 from sqlalchemy import select
-from sqlalchemy.exc import NoResultFound
 import docker
 from docker.errors import ImageNotFound, APIError, NullResource
 from netaddr import IPNetwork
@@ -23,15 +22,8 @@ from dr_emu.models import (
     Service,
     DependsOn,
 )
-from dr_emu.schemas.infrastructure import (
-    InfrastructureInfo,
-    NetworkSchema,
-    ApplianceSchema,
-    InfrastructureSchema,
-)
 
 from parser.cyst_parser import CYSTParser
-
 from cyst_infrastructure import nodes as cyst_nodes, routers as cyst_routers, attacker
 
 
@@ -42,11 +34,10 @@ class InfrastructureController:
 
     def __init__(
         self,
-        client: docker.DockerClient,
         images: set,
         infrastructure: Optional[Infrastructure] = None,
     ):
-        self.client = client
+        self.client = docker.from_env()
         self.images = images
         self.infrastructure = infrastructure
 
@@ -318,7 +309,6 @@ class InfrastructureController:
 
     @staticmethod
     async def prepare_controller_for_infra_creation(
-        docker_client: docker.DockerClient,
         infrastructure: Infrastructure,
         images,
         available_networks,
@@ -329,7 +319,6 @@ class InfrastructureController:
         :param available_networks: IP addresses of networks that are available to use for building Infra
         :param infrastructure: Infrastructure object
         :param images: images needed for Infrastructure containers
-        :param docker_client: client for docker rest api
         :return: Controller with prepared object for building a new infrastructure
         """
         logger.debug(
@@ -338,11 +327,11 @@ class InfrastructureController:
             infrastructure_id=infrastructure.id,
         )
 
-        controller = InfrastructureController(docker_client, images, infrastructure)
+        controller = InfrastructureController(images, infrastructure)
 
         await controller.resolve_dependencies()
 
-        used_network_names = await util.get_network_names(docker_client)
+        used_network_names = await util.get_network_names(docker.from_env())
 
         while (management_name := randomname.generate("adj/colors", "management")) in used_network_names:
             continue
@@ -387,22 +376,22 @@ class InfrastructureController:
         :return:
         """
         logger.info("Building infrastructures")
-        docker_client = docker.from_env()
         controller_start_tasks = set()
         available_networks = []
+        client = docker.from_env()
 
-        docker_container_names = await util.get_container_names(docker_client)
-        docker_network_names = await util.get_network_names(docker_client)
-        await util.pull_images(docker_client, images=set(constants.IMAGE_LIST))
+        docker_container_names = await util.get_container_names(client)
+        docker_network_names = await util.get_network_names(client)
+        await util.pull_images(client, images=set(constants.IMAGE_LIST))
 
         for i in range(int(number_of_infrastructures)):
             # need to parse infra at every iteration due to python reference holding and because sqlalchemy models cannot be
             # deep copied
-            parser = CYSTParser(docker_client)
+            parser = CYSTParser(client)
             await parser.parse(cyst_routers, cyst_nodes, attacker)
             if not available_networks:
                 available_networks += await util.get_available_networks(
-                    docker_client, parser.networks, number_of_infrastructures
+                    client, parser.networks, number_of_infrastructures
                 )
             # TODO: Move checking of used ips/names into the parser?
             # get the correct amount of networks for infra from available network list
@@ -422,7 +411,6 @@ class InfrastructureController:
             )
 
             controller = await InfrastructureController.prepare_controller_for_infra_creation(
-                docker_client,
                 images=parser.images,
                 available_networks=available_networks[slice_start:slice_end],
                 infrastructure=infrastructure,
@@ -474,7 +462,7 @@ class InfrastructureController:
         :param infrastructure: Infrastructure object
         :return:
         """
-        controller = InfrastructureController(docker.from_env(), set(), infrastructure)
+        controller = InfrastructureController(set(), infrastructure)
 
         # destroy docker objects
         await controller.stop()
@@ -489,7 +477,7 @@ class InfrastructureController:
         :param db_session: Async database session
         :return:
         """
-        controller = InfrastructureController(docker.from_env(), set(), infrastructure)
+        controller = InfrastructureController(set(), infrastructure)
 
         # delete objects from db
         await controller.delete_infrastructure(db_session)

@@ -1,19 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, call
-
-import dr_emu
 from dr_emu.controllers.infrastructure import InfrastructureController
-from dr_emu.models import (
-    Network,
-    Service,
-    Router,
-    Interface,
-    Node,
-    Attacker,
-    FirewallRule,
-)
-from netaddr import IPAddress, IPNetwork
-from parser.util import constants
+
 import asyncio
 
 
@@ -22,8 +10,9 @@ class TestInfrastructureController:
     path = "dr_emu.controllers.infrastructure.InfrastructureController"
 
     @pytest.fixture(autouse=True)
-    def controller(self):
-        self.controller = InfrastructureController(client=Mock(), images=set(), infrastructure=Mock(name="test_infra"))
+    def controller(self, mocker):
+        mocker.patch("dr_emu.controllers.infrastructure.docker.from_env")
+        self.controller = InfrastructureController(images=set(), infrastructure=Mock(name="test_infra"))
 
     async def test_start(self, mocker):
         asyncio_gather_spy = mocker.spy(asyncio, "gather")
