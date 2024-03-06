@@ -54,3 +54,18 @@ async def delete_template(template_id: int, db_session: AsyncSession) -> Templat
 
     logger.debug("Template deleted", id=template.id, name=template.name)
     return template
+
+
+async def get_template(template_id: int, db_session: AsyncSession) -> Template:
+    """
+    List all Templates saved in DB.
+    :param db_session: Async database session
+    :param template_id: Template ID
+    :return: list of Templates
+    """
+    logger.debug("Listing templates")
+
+    template = (await db_session.execute(select(Template).where(Template.id == template_id))).scalar_one()
+
+    return template
+

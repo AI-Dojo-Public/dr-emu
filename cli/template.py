@@ -1,4 +1,5 @@
 import typer
+import os
 from rich.console import Console
 from typer import Typer
 from typing_extensions import Annotated
@@ -18,14 +19,19 @@ def create_template(
         str,
         typer.Argument(help="Name of the prefabricated infrastructure description"),
     ],
-    infra_description: Annotated[
+    infra_description_path: Annotated[
         str,
         typer.Argument(help="Path to a file with cyst infrastructure description"),
     ],
 ):
-    response = clm.api_post(
-        endpoint_url=Template.create, data=TemplateSchema(name=name, description=infra_description).model_dump_json()
-    )
+    if not os.path.isfile(infra_description_path):
+        console.print(f"Invalid path: {infra_description_path}", style="red")
+        return
+
+    with open(infra_description_path, "r") as f:
+        response = clm.api_post(
+            endpoint_url=Template.create, data=TemplateSchema(name=name, description=f.read()).model_dump_json()
+        )
     clm.print_non_get_message(response, constants.TEMPLATE, 201)
 
 

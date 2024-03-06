@@ -10,6 +10,7 @@ Clone the repo:
 ```shell
 git clone git@gitlab.ics.muni.cz:ai-dojo/docker-testbed.git
 cd docker-testbed
+git clone git@gitlab.ics.muni.cz:cyst/cyst-core.git
 ```
 
 ## Build the infrastructure

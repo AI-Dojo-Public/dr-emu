@@ -1,8 +1,8 @@
-"""create initial tables
+"""Create initial tables
 
-Revision ID: 66b064e6af24
+Revision ID: fe9691854ea4
 Revises: 
-Create Date: 2023-12-13 10:17:23.159793
+Create Date: 2024-03-05 15:40:44.645893
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlalchemy_utils
 
 
 # revision identifiers, used by Alembic.
-revision: str = '66b064e6af24'
+revision: str = 'fe9691854ea4'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -122,11 +122,12 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.ForeignKeyConstraint(['appliance_id'], ['appliance.id'], ),
     sa.ForeignKeyConstraint(['network_id'], ['network.id'], ),
-    sa.PrimaryKeyConstraint('network_id', 'appliance_id', 'id')
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_table('node',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('ipc_mode', sa.String(), nullable=True),
+    sa.Column('depends_on', sqlalchemy_utils.types.json.JSONType(), nullable=False),
     sa.ForeignKeyConstraint(['id'], ['appliance.id'], ),
     sa.PrimaryKeyConstraint('id')
     )

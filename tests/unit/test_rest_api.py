@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock
 from sqlalchemy.exc import NoResultFound
 from fastapi.testclient import TestClient
 
-from dr_emu.models import Agent, AgentGit, AgentLocal, AgentPypi, Run, Template, Infrastructure
+from dr_emu.models import Agent, AgentGit, AgentLocal, AgentPypi, Run, Template, Infrastructure, Instance
 
 from dr_emu.app import app as app
 from shared import endpoints
@@ -150,9 +150,15 @@ class TestRun:
     run_controller = f"{controllers_path}.run"
 
     @pytest.fixture()
-    def run(self):
+    def instance(self):
+        run_mock = Mock(spec=Instance)
+        run_mock.configure_mock(infrastructure=Mock(id=1),)
+        return run_mock
+
+    @pytest.fixture()
+    def run(self, instance):
         run_mock = Mock(spec=Run)
-        run_mock.configure_mock(id=1, name="test_run", agents=[Mock(id=2)], template_id=3)
+        run_mock.configure_mock(id=1, name="test_run", agents=[Mock(id=2)], template_id=3, instances=[instance])
         return run_mock
 
     @pytest.fixture()
@@ -165,6 +171,7 @@ class TestRun:
 
         response = test_app.get(endpoints.Run.list)
         assert response.status_code == 200
+        run_schema["infrastructure_ids"] = [1]
         assert response.json() == [run_schema]
 
     async def test_create_run(self, test_app, run, mocker, run_schema):
@@ -280,7 +287,7 @@ class TestInfrastructure:
     @pytest.fixture()
     def infrastructure(self):
         infra = Mock(spec=Infrastructure)
-        infra.configure_mock(id=1, name="test_infra")
+        infra.configure_mock(id=1, name="test_infra", instance=Mock(run_id=1))
         return infra
 
     async def test_list_infrastructures(self, test_app, mocker, infrastructure):
@@ -290,15 +297,13 @@ class TestInfrastructure:
 
         response = test_app.get(endpoints.Infrastructure.list)
         assert response.status_code == 200
-        assert response.json() == [{"id": infrastructure.id, "name": infrastructure.name}]
+        assert response.json() == [{"id": infrastructure.id, "name": infrastructure.name, "run_id": 1}]
 
     async def test_destroy_infrastructure(self, test_app, mocker):
         infra_mock = Mock()
         mock_stop_infra = mocker.patch(f"{self.infra_controller}.stop_infra")
         mock_delete_infra = mocker.patch(f"{self.infra_controller}.delete_infra")
-        mocker.patch(
-            f"{self.infra_controller}.get_infra", side_effect=AsyncMock(return_value=infra_mock)
-        )
+        mocker.patch(f"{self.infra_controller}.get_infra", side_effect=AsyncMock(return_value=infra_mock))
 
         response = test_app.delete(endpoints.Infrastructure.delete.format(1))
 

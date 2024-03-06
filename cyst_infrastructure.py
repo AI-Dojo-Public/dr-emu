@@ -1,5 +1,4 @@
 from netaddr import IPAddress, IPNetwork
-
 from cyst.api.configuration import (
     AuthenticationProviderConfig,
     PassiveServiceConfig,
@@ -29,6 +28,8 @@ from cyst.api.logic.access import (
     AuthenticationTokenSecurity,
 )
 from cyst.api.network.firewall import FirewallPolicy, FirewallChainType, FirewallRule
+from cyst.api.environment.environment import Environment
+
 
 # -----------------------------------------------------------------------------
 # Scripted attacker
@@ -41,8 +42,7 @@ scripted_attacker = NodeConfig(
             "scripted_actor",
             "scripted_attacker",
             "attacker",
-            AccessLevel.LIMITED,
-            id="attacker_service",
+            AccessLevel.LIMITED
         )
     ],
     passive_services=[
@@ -51,24 +51,21 @@ scripted_attacker = NodeConfig(
             owner="jtr",
             version="1.9.0",
             local=True,
-            access_level=AccessLevel.LIMITED,
-            id="jtr_service",
+            access_level=AccessLevel.LIMITED
         ),
         PassiveServiceConfig(
             type="empire",
             owner="empire",
             version="4.10.0",
             local=True,
-            access_level=AccessLevel.LIMITED,
-            id="empire_service",
+            access_level=AccessLevel.LIMITED
         ),
         PassiveServiceConfig(
             type="msf",
             owner="msf",
-            version="0",
+            version="1.0.0",
             local=True,
-            access_level=AccessLevel.LIMITED,
-            id="msf_service",
+            access_level=AccessLevel.LIMITED
         ),
     ],
     traffic_processors=[],
@@ -100,7 +97,6 @@ wordpress_srv = NodeConfig(
             version="6.1.1",
             local=False,
             access_level=AccessLevel.LIMITED,
-            id="wordpress_app",
             authentication_providers=[local_password_auth("wordpress_app_pwd")],
             access_schemes=[
                 AccessSchemeConfig(
@@ -127,8 +123,7 @@ wordpress_db = NodeConfig(
             owner="mysql",
             version="8.0.31",
             local=False,
-            access_level=AccessLevel.LIMITED,
-            id="wordpress_db",
+            access_level=AccessLevel.LIMITED
         )
     ],
     traffic_processors=[],
@@ -149,8 +144,7 @@ vsftpd_srv = NodeConfig(
             owner="vsftpd",
             version="2.3.4",
             local=False,
-            access_level=AccessLevel.LIMITED,
-            id="vsftpd_service",
+            access_level=AccessLevel.LIMITED
         )
     ],
     traffic_processors=[],
@@ -167,7 +161,6 @@ postgres_srv = NodeConfig(
     active_services=[],
     passive_services=[
         PassiveServiceConfig(
-            id="postgres_service",
             type="postgres",
             owner="postgres",
             version="10.5.0",
@@ -203,8 +196,7 @@ haraka_srv = NodeConfig(
             owner="haraka",
             version="2.3.4",
             local=False,
-            access_level=AccessLevel.LIMITED,
-            id="haraka_service",
+            access_level=AccessLevel.LIMITED
         )
     ],
     traffic_processors=[],
@@ -226,8 +218,7 @@ chat_srv = NodeConfig(
             owner="chat",
             version="2.3.4",
             local=False,
-            access_level=AccessLevel.LIMITED,
-            id="chat_service",
+            access_level=AccessLevel.LIMITED
         )
     ],
     traffic_processors=[],
@@ -289,7 +280,7 @@ client3 = NodeConfig(
             owner="bash",
             version="8.1.0",
             local=True,
-            access_level=AccessLevel.ELEVATED,
+            access_level=AccessLevel.ELEVATED
         ),
     ],
     traffic_processors=[],
@@ -306,7 +297,7 @@ client4 = NodeConfig(
             owner="bash",
             version="8.1.0",
             local=True,
-            access_level=AccessLevel.ELEVATED,
+            access_level=AccessLevel.ELEVATED
         ),
     ],
     traffic_processors=[],
@@ -323,7 +314,7 @@ client5 = NodeConfig(
             owner="bash",
             version="8.1.0",
             local=True,
-            access_level=AccessLevel.ELEVATED,
+            access_level=AccessLevel.ELEVATED
         ),
     ],
     traffic_processors=[],
@@ -338,7 +329,7 @@ wifi_client1 = NodeConfig(
     traffic_processors=[],
     interfaces=[InterfaceConfig(IPAddress("192.168.1.10"), IPNetwork("192.168.1.0/24"))],
     shell="",
-    id="wifi_client1",
+    id="wifi_client1"
 )
 
 wifi_client2 = NodeConfig(
@@ -347,7 +338,7 @@ wifi_client2 = NodeConfig(
     traffic_processors=[],
     interfaces=[InterfaceConfig(IPAddress("192.168.1.11"), IPNetwork("192.168.1.0/24"))],
     shell="",
-    id="wifi_client2",
+    id="wifi_client2"
 )
 
 wifi_client3 = NodeConfig(
@@ -356,7 +347,7 @@ wifi_client3 = NodeConfig(
     traffic_processors=[],
     interfaces=[InterfaceConfig(IPAddress("192.168.1.12"), IPNetwork("192.168.1.0/24"))],
     shell="",
-    id="wifi_client3",
+    id="wifi_client3"
 )
 
 
@@ -366,7 +357,7 @@ wifi_client4 = NodeConfig(
     traffic_processors=[],
     interfaces=[InterfaceConfig(IPAddress("192.168.1.13"), IPNetwork("192.168.1.0/24"))],
     shell="",
-    id="wifi_client4",
+    id="wifi_client4"
 )
 
 wifi_client5 = NodeConfig(
@@ -375,7 +366,7 @@ wifi_client5 = NodeConfig(
     traffic_processors=[],
     interfaces=[InterfaceConfig(IPAddress("192.168.1.14"), IPNetwork("192.168.1.0/24"))],
     shell="",
-    id="wifi_client5",
+    id="wifi_client5"
 )
 
 
@@ -402,19 +393,21 @@ perimeter_router = RouterConfig(
     id="perimeter_router",
 )
 
-perimeter_connections = [
-    ConnectionConfig("attacker_node", 0, "perimeter_router", 0),
-    # ConnectionConfig("wordpress_node", 1, "perimeter_router", 1),
-]
-
 # -----------------------------------------------------------------------------
 # Internal router
 # -----------------------------------------------------------------------------
 internal_router = RouterConfig(
     interfaces=[
-        # PortConfig(index=0),  # Future port for perimeter router (not implemented yet)
+        InterfaceConfig(IPAddress("192.168.2.1"), IPNetwork("192.168.2.0/24"), index=0),
         InterfaceConfig(IPAddress("192.168.2.1"), IPNetwork("192.168.2.0/24"), index=1),
-        InterfaceConfig(IPAddress("192.168.3.1"), IPNetwork("192.168.3.0/24"), index=2),
+        InterfaceConfig(IPAddress("192.168.2.1"), IPNetwork("192.168.2.0/24"), index=2),
+        InterfaceConfig(IPAddress("192.168.2.1"), IPNetwork("192.168.2.0/24"), index=3),
+        InterfaceConfig(IPAddress("192.168.2.1"), IPNetwork("192.168.2.0/24"), index=4),
+        InterfaceConfig(IPAddress("192.168.3.1"), IPNetwork("192.168.3.0/24"), index=5),
+        InterfaceConfig(IPAddress("192.168.3.1"), IPNetwork("192.168.3.0/24"), index=6),
+        InterfaceConfig(IPAddress("192.168.3.1"), IPNetwork("192.168.3.0/24"), index=7),
+        InterfaceConfig(IPAddress("192.168.3.1"), IPNetwork("192.168.3.0/24"), index=8),
+        InterfaceConfig(IPAddress("192.168.3.1"), IPNetwork("192.168.3.0/24"), index=9),
     ],
     traffic_processors=[
         FirewallConfig(
@@ -451,10 +444,10 @@ internal_router = RouterConfig(
                         ),
                     ],
                 )
-            ],
+            ]
         )
     ],
-    id="server_router",
+    id="internal_router",
 )
 
 wifi_router = RouterConfig(
@@ -472,23 +465,29 @@ wifi_router = RouterConfig(
 )
 
 inside_connections = [
-    ConnectionConfig("vsftpd_node", 0, "internal_router", 2),
-    ConnectionConfig("postgres_node", 0, "internal_router", 2),
-    ConnectionConfig("client1", 0, "internal_router", 1),
-    ConnectionConfig("client2", 0, "internal_router", 1),
+    ConnectionConfig("wordpress_app_node", 0, "internal_router", 5),
+    ConnectionConfig("wordpress_db_node", 0, "internal_router", 6),
+    ConnectionConfig("haraka_node", 0, "internal_router", 7),
+    ConnectionConfig("postgres_node", 0, "internal_router", 8),
+    ConnectionConfig("chat_node", 0, "internal_router", 9),
+    ConnectionConfig("developer", 0, "internal_router", 0),
     ConnectionConfig("client3", 0, "internal_router", 1),
-    ConnectionConfig("client4", 0, "internal_router", 1),
-    ConnectionConfig("client5", 0, "internal_router", 1),
-    ConnectionConfig("wifi_client1", 0, "wifi_router", 1),
-    ConnectionConfig("wifi_client2", 0, "wifi_router", 1),
-    ConnectionConfig("wifi_client3", 0, "wifi_router", 1),
-    ConnectionConfig("wifi_client4", 0, "wifi_router", 1),
-    ConnectionConfig("wifi_client5", 0, "wifi_router", 1),
+    ConnectionConfig("client4", 0, "internal_router", 2),
+    ConnectionConfig("client5", 0, "internal_router", 3),
+    ConnectionConfig("wifi_client1", 0, "wifi_router", -1),
+    ConnectionConfig("wifi_client2", 0, "wifi_router", -1),
+    ConnectionConfig("wifi_client3", 0, "wifi_router", -1),
+    ConnectionConfig("wifi_client4", 0, "wifi_router", -1),
+    ConnectionConfig("wifi_client5", 0, "wifi_router", -1),
 ]
 
-router_connections = [
-    ConnectionConfig("perimeter_router", 0, "internal_router", 0),
-    ConnectionConfig("perimeter_router", 0, "wifi_router", 0),
+# router_connections = [
+#     ConnectionConfig("perimeter_router", -1, "internal_router", -1),
+#     ConnectionConfig("perimeter_router", -1, "wifi_router", -1),
+# ]
+
+perimeter_connections = [
+    ConnectionConfig("attacker_node", 0, "perimeter_router", -1),
 ]
 
 # Exploits

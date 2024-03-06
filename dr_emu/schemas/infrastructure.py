@@ -10,6 +10,7 @@ Base = declarative_base()
 class InfrastructureSchema(BaseModel):
     id: int
     name: constr(max_length=30)
+    run_id: int
 
 
 class ApplianceSchema(BaseModel):

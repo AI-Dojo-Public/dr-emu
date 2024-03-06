@@ -154,14 +154,14 @@ class TestCYSTParser:
 
         services = await self.parser.parse_services(node_services)
 
-        assert services[0].name == service.id
+        assert services[0].name == service.type
         assert services[0].image == constants.IMAGE_NODE
         assert services[0].command == []
         assert services[0].healthcheck == dict()
 
         assert isinstance(services[0], Service)
 
-        get_config_mock.assert_awaited_with(service.id)
+        get_config_mock.assert_awaited_with(service.type)
 
     @pytest.mark.parametrize(
         "router, router_type",

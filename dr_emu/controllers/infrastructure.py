@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from parser.util import util, constants
+from dr_emu.controllers import template as template_controller
 from dr_emu.lib.logger import logger
 from dr_emu.models import (
     Infrastructure,
@@ -24,7 +25,6 @@ from dr_emu.models import (
 )
 
 from parser.cyst_parser import CYSTParser
-from cyst_infrastructure import nodes as cyst_nodes, routers as cyst_routers, attacker
 
 
 class InfrastructureController:
@@ -45,10 +45,10 @@ class InfrastructureController:
     async def get_infra(infrastructure_id, db_session: AsyncSession):
         # Exception handled in outer function
         return (
-                (await db_session.execute(select(Infrastructure).where(Infrastructure.id == infrastructure_id)))
-                .unique()
-                .scalar_one()
-            )
+            (await db_session.execute(select(Infrastructure).where(Infrastructure.id == infrastructure_id)))
+            .unique()
+            .scalar_one()
+        )
 
     async def start(self):
         """
@@ -121,9 +121,7 @@ class InfrastructureController:
         node_configure_tasks = {asyncio.create_task(node.configure()) for node in self.infrastructure.nodes}
 
         routers = self.infrastructure.routers
-        router_configure_tasks = {
-            asyncio.create_task(router.configure(routers)) for router in routers
-        }
+        router_configure_tasks = {asyncio.create_task(router.configure(routers)) for router in routers}
 
         logger.debug("Appliances configured", infrastructure_id=self.infrastructure.id)
         return node_configure_tasks.union(router_configure_tasks)
@@ -139,8 +137,9 @@ class InfrastructureController:
             name=self.infrastructure.name,
             id=self.infrastructure.id,
         )
-        stop_container_tasks = (await self.delete_nodes(check_id)).union(await self.delete_routers(check_id))
-        await asyncio.gather(*stop_container_tasks)
+        delete_nodes_tasks = await self.delete_nodes(check_id)
+        delete_routers_tasks = await self.delete_routers(check_id)
+        await asyncio.gather(*delete_nodes_tasks, *delete_routers_tasks)
         logger.debug(
             "Appliances deleted",
             infrastructure_name=self.infrastructure.name,
@@ -210,27 +209,6 @@ class InfrastructureController:
             if not check_id or (check_id and node.docker_id != ""):
                 node_tasks.add(asyncio.create_task(node.delete()))
         return node_tasks
-
-    async def delete_infrastructure(self, db_session: AsyncSession):
-        """
-        Delete infrastructure and all models belonging to it (cascade deletion) from db.
-        :param db_session: Async database session
-
-        :return:
-        """
-        logger.debug(
-            "Deleting infrastructure",
-            name=self.infrastructure.name,
-            id=self.infrastructure.id,
-        )
-
-        await db_session.delete(self.infrastructure)
-        await db_session.commit()
-        logger.debug(
-            "Infrastructure deleted",
-            name=self.infrastructure.name,
-            id=self.infrastructure.id,
-        )
 
     async def change_ipadresses(self, available_networks: list[IPNetwork]):
         """
@@ -385,14 +363,18 @@ class InfrastructureController:
         await util.pull_images(client, images=set(constants.IMAGE_LIST))
 
         for i in range(int(number_of_infrastructures)):
-            # need to parse infra at every iteration due to python reference holding and because sqlalchemy models cannot be
-            # deep copied
+            # need to parse infra at every iteration due to python reference holding and because sqlalchemy models
+            # cannot be deep copied
+            template = await template_controller.get_template(run.template_id, db_session)
             parser = CYSTParser(client)
-            await parser.parse(cyst_routers, cyst_nodes, attacker)
+
+            await parser.parse_cyst_output(template.description)
+
             if not available_networks:
                 available_networks += await util.get_available_networks(
                     client, parser.networks, number_of_infrastructures
                 )
+
             # TODO: Move checking of used ips/names into the parser?
             # get the correct amount of networks for infra from available network list
             slice_start = 0 if i == 0 else (len(parser.networks) + 1) * i
@@ -466,21 +448,28 @@ class InfrastructureController:
 
         # destroy docker objects
         await controller.stop()
-        # delete objects from db
-        # await controller.delete_infrastructure()
 
     @staticmethod
     async def delete_infra(infrastructure: Infrastructure, db_session: AsyncSession):
         """
-        Destroys docker infrastructure.
+        Delete infrastructure and all models belonging to it (cascade deletion) from db.
         :param infrastructure: Infrastructure object
         :param db_session: Async database session
         :return:
         """
-        controller = InfrastructureController(set(), infrastructure)
+        logger.debug(
+            "Deleting infrastructure",
+            name=infrastructure.name,
+            id=infrastructure.id,
+        )
 
-        # delete objects from db
-        await controller.delete_infrastructure(db_session)
+        await db_session.delete(infrastructure.instance)
+        await db_session.commit()
+        logger.debug(
+            "Infrastructure deleted",
+            name=infrastructure.name,
+            id=infrastructure.id,
+        )
 
     @staticmethod
     async def list_infrastructures(db_session: AsyncSession) -> Sequence[Infrastructure]:
@@ -491,7 +480,7 @@ class InfrastructureController:
         """
         logger.debug("Pulling infrastructures from db")
 
-        return (await db_session.scalars(select(Infrastructure))).all()
+        return (await db_session.scalars(select(Infrastructure).options(joinedload(Infrastructure.instance)))).all()
 
     @staticmethod
     async def get_infra_info(infrastructure_id: int, db_session: AsyncSession) -> Infrastructure:
@@ -509,9 +498,10 @@ class InfrastructureController:
                     select(Infrastructure)
                     .where(Infrastructure.id == infrastructure_id)
                     .options(
-                        joinedload(Infrastructure.networks)
-                        .subqueryload(Network.interfaces)
-                        .subqueryload(Interface.appliance),
+                        joinedload(Infrastructure.instance),
+                        joinedload(Infrastructure.routers),
+                        joinedload(Infrastructure.networks),
+                        joinedload(Infrastructure.nodes).joinedload(Node.services),
                     )
                 )
             )

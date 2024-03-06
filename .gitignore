@@ -2,6 +2,5 @@
 __pycache__
 .venv
 dr_emu/log/*
-dr_emu/log
 /tests/unit/.pytest_cache/
 /tests/integration/.pytest_cache/
