@@ -33,7 +33,7 @@ force_instant_defaults()
 
 
 class Base(AsyncAttrs, DeclarativeBase):
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
 
 class DockerMixin:
@@ -196,11 +196,11 @@ class Interface(Base):
 
     __tablename__ = "interface"
 
-    network_id: Mapped[int] = mapped_column(ForeignKey("network.id"), primary_key=True)
+    network_id: Mapped[int] = mapped_column(ForeignKey("network.id"))
     network: Mapped["Network"] = relationship(back_populates="interfaces")
     _ipaddress = mapped_column("ipaddress", String)
     appliance: Mapped["Appliance"] = relationship(back_populates="interfaces")
-    appliance_id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
+    appliance_id: Mapped[int] = mapped_column(ForeignKey("appliance.id"))
 
     @property
     def ipaddress(self):
@@ -404,7 +404,17 @@ class Router(Appliance):
         gateway for Nodes.
         :return:
         """
+        # Filtering instances with unique values of attribute "x"
+        unique_networks = {self.interfaces[0].network}
+        unique_interfaces = []
+
         for interface in self.interfaces[1:]:
+            if interface.network not in unique_networks:
+                unique_interfaces.append(interface)
+                unique_networks.add(interface.network)
+                
+        for interface in unique_interfaces:
+            logger.debug(f"Connecting router {self.name} to network {interface.network.name}")
             (await interface.network.get()).connect(self.name, ipv4_address=str(interface.ipaddress))
 
     async def start(self):

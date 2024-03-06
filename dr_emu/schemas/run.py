@@ -9,3 +9,7 @@ class Run(BaseModel):
 
 class RunOut(Run):
     id: int
+
+
+class RunInfo(RunOut):
+    infrastructure_ids: list[int]

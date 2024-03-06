@@ -37,7 +37,7 @@ async def destroy_infra(infrastructure_id: int, session: DBSession):
 @router.get("/", response_model=list[InfrastructureSchema])
 async def list_infrastructures(session: DBSession):
     infras = await InfrastructureController.list_infrastructures(session)
-    response = [InfrastructureSchema(id=infra.id, name=infra.name) for infra in infras]
+    response = [InfrastructureSchema(id=infra.id, name=infra.name, run_id=infra.instance.run_id) for infra in infras]
     return response
 
 
@@ -46,14 +46,20 @@ async def get_infra(infrastructure_id: int, session: DBSession):
     try:
         infrastructure = await InfrastructureController.get_infra_info(infrastructure_id, session)
 
-        infra_info = InfrastructureInfo(id=infrastructure_id, name=infrastructure.name)
+        networks_info = []
+        appliances_info = []
         for network in infrastructure.networks:
-            network_info = NetworkSchema(name=network.name, ip=str(network.ipaddress))
-            infra_info.networks.append(network_info)
             for interface in network.interfaces:
-                network_info.appliances.append(
-                    ApplianceSchema(name=interface.appliance.name, ip=str(interface.ipaddress))
-                )
+                appliances_info.append(ApplianceSchema(name=interface.appliance.name, ip=str(interface.ipaddress)))
+            network_info = NetworkSchema(name=network.name, ip=str(network.ipaddress), appliances=appliances_info)
+            networks_info.append(network_info)
+
+        infra_info = InfrastructureInfo(
+            id=infrastructure_id,
+            name=infrastructure.name,
+            run_id=infrastructure.instance.run_id,
+            networks=networks_info,
+        )
 
         return infra_info
 

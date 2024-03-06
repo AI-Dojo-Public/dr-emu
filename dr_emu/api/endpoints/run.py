@@ -6,7 +6,7 @@ from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import run as run_controller
 from dr_emu.lib.exceptions import NoAgents
-from dr_emu.schemas.run import Run, RunOut
+from dr_emu.schemas.run import Run, RunOut, RunInfo
 from shared import constants
 
 router = APIRouter(
@@ -83,18 +83,20 @@ async def stop_run(run_id: int, session: DBSession):
     return {"message": f"All instances of Run {run_id} has been stopped"}
 
 
-@router.get("/", response_model=list[RunOut])
+@router.get("/", response_model=list[RunInfo])
 async def list_runs(session: DBSession):
     runs = await run_controller.list_runs(session)
     if runs:
         result = []
         for run in runs:
             agent_ids = [agent.id for agent in run.agents]
-            run_info = RunOut(
+            infrastructure_ids = [instance.infrastructure.id for instance in run.instances]
+            run_info = RunInfo(
                 id=run.id,
                 name=run.name,
                 template_id=run.template_id,
                 agent_ids=agent_ids,
+                infrastructure_ids=infrastructure_ids,
             )
             result.append(run_info)
         return result

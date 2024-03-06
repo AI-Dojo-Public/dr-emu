@@ -27,7 +27,8 @@ variables:
   before_script:
     - export $(grep -v '^#' .env | xargs)
     - apt update
-    - apt install -y build-essential curl python3-dev g++ gcc
+    - apt install -y build-essential curl python3-dev g++ gcc git
+    - git clone https://oauth2:$CYST_TOKEN@gitlab.ics.muni.cz/cyst/cyst-core.git
     - curl -sSL https://install.python-poetry.org | python3 -
     - export PATH="/root/.local/bin:$PATH"
     - poetry install

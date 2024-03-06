@@ -43,7 +43,17 @@ async def list_runs(db_session: AsyncSession) -> Sequence[Run]:
     """
     logger.debug("Listing runs")
 
-    runs = (await db_session.scalars(select(Run).options(joinedload(Run.agents)))).unique().all()
+    runs = (
+        (
+            await db_session.scalars(
+                select(Run).options(
+                    joinedload(Run.agents), joinedload(Run.instances).joinedload(Instance.infrastructure)
+                )
+            )
+        )
+        .unique()
+        .all()
+    )
 
     return runs
 
@@ -95,11 +105,11 @@ async def stop_run(run_id: int, db_session: AsyncSession):
                 .where(Run.id == run_id)
                 .options(
                     joinedload(Run.instances)
-                    .subqueryload(Instance.infrastructure)
+                    .joinedload(Instance.infrastructure)
                     .options(
                         joinedload(Infrastructure.routers),
-                        joinedload(Infrastructure.nodes).subqueryload(Node.services),
                         joinedload(Infrastructure.networks),
+                        joinedload(Infrastructure.nodes).joinedload(Node.services),
                     )
                 )
             )
@@ -107,7 +117,6 @@ async def stop_run(run_id: int, db_session: AsyncSession):
         .unique()
         .scalar_one()
     )
-
     stop_instance_tasks = set()
 
     for instance in run.instances:

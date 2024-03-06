@@ -119,14 +119,14 @@ envs = {
         "CRYTON_WORKER_EMPIRE_PASSWORD": "cryton",
         "CRYTON_WORKER_MAX_RETRIES": 20,
     },
-    "msf_service": {
+    "msf": {
         "MSF_RPC_HOST": "localhost",
         "MSF_RPC_PORT": 55553,
         "MSF_RPC_SSL": True,
         "MSF_RPC_USERNAME": "cryton",
         "MSF_RPC_PASSWORD": "cryton",
     },
-    "empire_service": {
+    "empire": {
         "CRYTON_WORKER_EMPIRE_USERNAME": "cryton",
         "CRYTON_WORKER_EMPIRE_PASSWORD": "cryton",
     },
@@ -142,7 +142,7 @@ envs = {
         "WORDPRESS_DB_PASSWORD": "wordpress",
         "WORDPRESS_DB_NAME": "wordpress",
     },
-    "psql-service": {
+    "postgres": {
         "POSTGRES_DB": "beastdb",
         "POSTGRES_USER": "dbuser",
         "POSTGRES_PASSWORD": "dbpassword",
@@ -167,7 +167,7 @@ TESTBED_INFO = {
         COMMAND: None,
         VOLUMES: [f"{(resources_path/'vsftpd.log').as_posix()}:/var/log/vsftpd.log"],
     },
-    "psql-service": {
+    "postgres": {
         IMAGE: "postgres:10.5",
         COMMAND: None,
         VOLUMES: [
@@ -191,7 +191,7 @@ TESTBED_INFO = {
             f"{(resources_path/'user_list.txt').as_posix()}:/app/resources/user_list.txt",
         ],
     },
-    "msf_service": {
+    "msf": {
         IMAGE: "registry.gitlab.ics.muni.cz:443/cryton/beast-demo:attacker-node-demo",
         COMMAND: None,
         VOLUMES: [
@@ -199,7 +199,7 @@ TESTBED_INFO = {
             f"{(resources_path / 'user_list.txt').as_posix()}:/app/resources/user_list.txt",
         ],
     },
-    "empire_service": {
+    "empire": {
         IMAGE: "registry.gitlab.ics.muni.cz:443/cryton/beast-demo:attacker-node-demo",
         COMMAND: [
             "server",

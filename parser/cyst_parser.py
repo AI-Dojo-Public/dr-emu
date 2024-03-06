@@ -6,7 +6,8 @@ from netaddr import IPNetwork
 from dr_emu.lib.logger import logger
 from cyst.api.configuration.network.router import RouterConfig
 from cyst.api.configuration.network.node import NodeConfig
-
+from cyst.api.configuration.configuration import ConfigItem
+from cyst.api.environment.environment import Environment
 
 from dr_emu.models import Network, Service, Router, Interface, Node, Attacker, FirewallRule
 from parser.util import constants
@@ -154,13 +155,13 @@ class CYSTParser:
                 continue
             service_image = (
                 specified_image
-                if (specified_image := constants.TESTBED_IMAGES.get(cyst_service.id)) is not None
+                if (specified_image := constants.TESTBED_IMAGES.get(cyst_service.type)) is not None
                 else constants.IMAGE_NODE
             )
 
-            configuration = await self.get_service_configuration(cyst_service.id)
-            environment = envs if (envs := constants.envs.get(cyst_service.id)) is not None else {}
-            command = container[constants.COMMAND] if (container := constants.TESTBED_INFO.get(cyst_service.id)) else []
+            configuration = await self.get_service_configuration(cyst_service.type)
+            environment = envs if (envs := constants.envs.get(cyst_service.type)) is not None else {}
+            command = container[constants.COMMAND] if (container := constants.TESTBED_INFO.get(cyst_service.type)) else []
 
             try:  # TODO: unused
                 depends_on = constants.TESTBED_INFO[cyst_service.id][constants.DEPENDS_ON]
@@ -173,7 +174,7 @@ class CYSTParser:
                 healthcheck = dict()
 
             service = Service(
-                name=cyst_service.id,
+                name=cyst_service.type,
                 image=service_image,
                 environment=environment,
                 command=command,
@@ -222,6 +223,7 @@ class CYSTParser:
             )
             self.routers.append(router)
 
+    # Old function for static infra from file
     async def parse(self, cyst_routers: list[RouterConfig], cyst_nodes: list[NodeConfig], attacker: NodeConfig):
         """
         Create all necessary models for infrastructure based on parsed objects from cyst prescription.
@@ -231,6 +233,38 @@ class CYSTParser:
         :return:
         """
         logger.debug("Parsing cyst infrastructure description")
+        await self.parse_networks(cyst_routers)
+        await self.parse_routers(cyst_routers)
+        await self.parse_nodes(cyst_nodes, attacker)
+        await self.parse_images()
+        logger.info("Completed parsing cyst infrastructure description")
+
+    async def parse_cyst_output(self, config_description: str):
+        """
+        Create all necessary models for infrastructure based on parsed objects from cyst prescription.
+        config_items: list of configurations from cyst
+        :return:
+        """
+        logger.debug("Parsing cyst infrastructure description")
+        # deserialize json pickled config
+        env = Environment.create()
+
+        # SECURITY VULNERABILITY, EXECUTES PYTHON CODE FROM USER INPOUT
+        config_items = env.configuration.general.load_configuration(config_description)
+
+        cyst_routers = []
+        cyst_nodes = []
+        attacker = None
+
+        for item in config_items:
+            if type(item) is RouterConfig:
+                cyst_routers.append(item)
+            elif type(item) is NodeConfig:
+                cyst_nodes.append(item)
+                # TODO: needs better solution than "attacker" id
+                if "attacker" in item.id:
+                    attacker = item
+
         await self.parse_networks(cyst_routers)
         await self.parse_routers(cyst_routers)
         await self.parse_nodes(cyst_nodes, attacker)
