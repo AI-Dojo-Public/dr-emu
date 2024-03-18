@@ -53,13 +53,13 @@ scripted_attacker = NodeConfig(
             local=True,
             access_level=AccessLevel.LIMITED
         ),
-        PassiveServiceConfig(
-            type="empire",
-            owner="empire",
-            version="4.10.0",
-            local=True,
-            access_level=AccessLevel.LIMITED
-        ),
+        # PassiveServiceConfig(
+        #     type="empire",
+        #     owner="empire",
+        #     version="4.10.0",
+        #     local=True,
+        #     access_level=AccessLevel.LIMITED
+        # ),
         PassiveServiceConfig(
             type="msf",
             owner="msf",

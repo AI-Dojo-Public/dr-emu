@@ -67,8 +67,10 @@ async def start_run(session: DBSession, run_id: int, instances: int = 1):
         await run_controller.start_run(run_id, instances, session)
     except NoResultFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
-    except (ImageNotFound, RuntimeError, Exception) as ex:
+    except (ImageNotFound, RuntimeError) as ex:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
+    except Exception as e:
+        raise e
 
     return {"message": f"{instances} Run instances created"}
 

@@ -1,4 +1,6 @@
 import asyncio
+from ipaddress import IPv4Address
+
 from docker import DockerClient
 import docker.errors
 from netaddr import IPNetwork, IPAddress
@@ -96,18 +98,19 @@ async def get_network_names(docker_client: DockerClient) -> set[str]:
 
 async def get_available_networks(
     docker_client: DockerClient,
-    parsed_networks: list[Network],
+    default_networks_ips: set[IPNetwork],
     number_of_infrastructures: int,
 ) -> list[IPNetwork]:
     """
     Get available networks for new infrastructure, also returns available ips for management networks.
     :param number_of_infrastructures:
     :param docker_client: client for docker rest api
-    :param parsed_networks: Network objects parsed from cyst infrastructure
+    :param default_networks_ips: Default ip addresses of networks parsed from cyst infrastructure description
     :return: list of available Networks, that can be used during infrastructure building.
     """
     logger.debug("Getting available IP addressed for networks")
     used_networks = set()
+    available_networks = []
     docker_networks = await asyncio.to_thread(docker_client.networks.list)
     for docker_network in docker_networks:
         if docker_network.name in ["none", "host"]:
@@ -115,25 +118,23 @@ async def get_available_networks(
 
         used_networks.add(IPNetwork(docker_client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"]))
 
-    default_infra_ipspace = False
-    default_networks_ips = {network.ipaddress for network in parsed_networks}
     if default_networks_ips.difference(used_networks) == default_networks_ips:
-        default_infra_ipspace = True
-    number_of_returned_subnets = (1 + len(parsed_networks)) * number_of_infrastructures
+        available_networks += list(default_networks_ips)
+
+    number_of_returned_subnets = (1 + len(default_networks_ips)) * number_of_infrastructures
 
     # TODO: what if I run out of ip address space?
     supernet = IPNetwork("192.168.0.0/16")  # Rework as a user input in the future
     subnets = supernet.subnet(24)
-    available_subnets = list(default_networks_ips) if default_infra_ipspace else []
 
     for subnet in subnets:
-        if subnet not in [*used_networks, *available_subnets]:
-            available_subnets.append(subnet)
-        if len(available_subnets) == number_of_returned_subnets:
+        if subnet not in [*used_networks, *available_networks]:
+            available_networks.append(subnet)
+        if len(available_networks) == number_of_returned_subnets:
             break
 
-    logger.debug("Completed getting available IP addressed for networks", available_subnets=available_subnets)
-    return available_subnets
+    logger.debug("Completed getting available IP addressed for networks", available_subnets=available_networks)
+    return available_networks
 
 
 async def pull_images(docker_client, images):
