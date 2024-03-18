@@ -59,20 +59,20 @@ class InfrastructureController:
 
         create_network_tasks = await self.create_networks()
         await asyncio.gather(*create_network_tasks)
-        logger.debug("Networks created", infrastructure_id=self.infrastructure.id)
+        logger.debug("Networks created", infrastructure_name=self.infrastructure.name)
 
         create_node_tasks = await self.create_nodes()
         await asyncio.gather(*create_node_tasks)
-        logger.debug("Nodes created", infrastructure_id=self.infrastructure.id)
+        logger.debug("Nodes created", infrastructure_name=self.infrastructure.name)
 
         start_router_tasks = await self.start_routers()
         start_node_tasks = await self.start_nodes()
         await asyncio.gather(*start_node_tasks, *start_router_tasks)
-        logger.debug("Appliances started", infrastructure_id=self.infrastructure.id)
+        logger.debug("Appliances started", infrastructure_name=self.infrastructure.name)
 
         configure_appliance_tasks = await self.configure_appliances()
         await asyncio.gather(*configure_appliance_tasks)
-        logger.debug("Appliances configured", infrastructure_id=self.infrastructure.id)
+        logger.debug("Appliances configured", infrastructure_name=self.infrastructure.name)
 
         logger.info(
             "Created infrastructure",
@@ -85,7 +85,7 @@ class InfrastructureController:
         Creates async tasks for creating networks.
         :return: set of tasks for network creation
         """
-        logger.debug("Creating networks", infrastructure_id=self.infrastructure.id)
+        logger.debug("Creating networks", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(network.create()) for network in self.infrastructure.networks}
 
     async def start_routers(self) -> set[asyncio.Task]:
@@ -93,7 +93,7 @@ class InfrastructureController:
         Creates async tasks for creating and starting routers.
         :return: set of tasks to start router containers
         """
-        logger.debug("Starting routers", infrastructure_id=self.infrastructure.id)
+        logger.debug("Starting routers", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(router.start()) for router in self.infrastructure.routers}
 
     async def create_nodes(self) -> set[asyncio.Task]:
@@ -101,7 +101,7 @@ class InfrastructureController:
         Creates async tasks for creating nodes.
         :return: set of tasks to create node containers
         """
-        logger.debug("Creating nodes", infrastructure_id=self.infrastructure.id)
+        logger.debug("Creating nodes", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(node.create()) for node in self.infrastructure.nodes}
 
     async def start_nodes(self) -> set[asyncio.Task]:
@@ -109,7 +109,7 @@ class InfrastructureController:
         Creates async tasks for starting nodes.
         :return: set of tasks to start node containers
         """
-        logger.debug("Starting nodes", infrastructure_id=self.infrastructure.id)
+        logger.debug("Starting nodes", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(node.start()) for node in self.infrastructure.nodes}
 
     async def configure_appliances(self) -> set[asyncio.Task]:
@@ -117,13 +117,13 @@ class InfrastructureController:
         Create async tasks for configuring iptables and ip routes in Nodes and Routers.
         :return:
         """
-        logger.debug("Configuring appliances", infrastructure_id=self.infrastructure.id)
+        logger.debug("Configuring appliances", infrastructure_name=self.infrastructure.name)
         node_configure_tasks = {asyncio.create_task(node.configure()) for node in self.infrastructure.nodes}
 
         routers = self.infrastructure.routers
         router_configure_tasks = {asyncio.create_task(router.configure(routers)) for router in routers}
 
-        logger.debug("Appliances configured", infrastructure_id=self.infrastructure.id)
+        logger.debug("Appliances configured", infrastructure_name=self.infrastructure.name)
         return node_configure_tasks.union(router_configure_tasks)
 
     async def stop(self, check_id: bool = False):
@@ -240,7 +240,6 @@ class InfrastructureController:
         """
         logger.debug(
             "Changing docker names to match the Infrastructure",
-            infrastructure_id=self.infrastructure.id,
             infrastructure_name=self.infrastructure.name,
         )
         containers = [*self.infrastructure.nodes, *self.infrastructure.routers]
@@ -249,20 +248,21 @@ class InfrastructureController:
 
         for container in containers:
             if container.name in container_names:
-                while (new_name := f"{self.infrastructure.name}-{container.name}") in container_names:
-                    continue
+                if (new_name := f"{self.infrastructure.name}-{container.name}") in container_names:
+                    # if by some miracle container with infra color + container_name already exists on a system
+                    new_name += "-dr-emu"
                 container.name = new_name
                 container_names.add(new_name)
             else:
                 container_names.add(container.name)
         for network in self.infrastructure.networks:
             if network.name in network_names:
-                while (new_name := randomname.generate(self.infrastructure.name, "noun/astronomy")) in network_names:
+                while (new_name := randomname.generate(self.infrastructure.name, "nouns/astronomy")) in network_names:
                     continue
                 network.name = new_name
                 network_names.add(new_name)
             else:
-                container_names.add(network.name)
+                network_names.add(network.name)
 
     async def resolve_dependencies(self):
         """
@@ -284,6 +284,35 @@ class InfrastructureController:
                         if dependency := container_dict.get(key):
                             container.dependencies.append(DependsOn(dependency=dependency, state=value))
         logger.debug("Dependencies resolved", infrastructure_name=self.infrastructure.name)
+
+    async def build_infrastructure(self, run) -> Instance:
+        run_instance = Instance(
+            run=run,
+            agent_instances="placeholder",
+            infrastructure=self.infrastructure,
+        )
+
+        logger.debug(
+            "Starting infrastructure",
+            infrastructure_name=self.infrastructure.name,
+            infrastructure_id=self.infrastructure.id,
+        )
+
+        try:
+            await self.start()
+            return run_instance
+        except (ImageNotFound, APIError, RuntimeError, Exception) as error:
+            logger.debug(
+                f"Deleting instance due to {type(error).__name__}",
+                infrastructure_name=self.infrastructure.name,
+                exception=error,
+            )
+            # TODO: Is there an exception where the containers(docker_ids) are created?
+            try:
+                await self.stop()
+            except NullResource:
+                pass
+            raise error
 
     @staticmethod
     async def prepare_controller_for_infra_creation(
@@ -345,6 +374,40 @@ class InfrastructureController:
         return controller
 
     @staticmethod
+    async def create_controller(
+        client, available_networks, template_description, docker_container_names, docker_network_names, infra_name
+    ):
+        # need to parse infra at every iteration due to python reference holding and because sqlalchemy models
+        # cannot be deep copied
+        parser = CYSTParser(client, template_description)
+
+        await parser.parse_cyst_output()
+
+        infrastructure = Infrastructure(
+            routers=parser.routers,
+            nodes=parser.nodes,
+            networks=parser.networks,
+            name=infra_name,
+        )
+
+        controller = await InfrastructureController.prepare_controller_for_infra_creation(
+            images=parser.images,
+            available_networks=available_networks,
+            infrastructure=infrastructure,
+        )
+
+        await controller.change_names(
+            container_names=docker_container_names,
+            network_names=docker_network_names,
+        )
+        logger.debug(
+            "Docker names changed",
+            infrastructure_name=infrastructure.name,
+        )
+
+        return controller
+
+    @staticmethod
     async def build_infras(number_of_infrastructures: int, run: Run, db_session: AsyncSession):
         """
         Builds docker infrastructure
@@ -354,88 +417,60 @@ class InfrastructureController:
         :return:
         """
         logger.info("Building infrastructures")
-        controller_start_tasks = set()
-        available_networks = []
         client = docker.from_env()
+        run_instances = []
+        controllers = []
 
         docker_container_names = await util.get_container_names(client)
         docker_network_names = await util.get_network_names(client)
+        template = await template_controller.get_template(run.template_id, db_session)
+
+        parser = CYSTParser(client, template.description)
+        default_networks_ips = await parser.get_default_networks_ips()
+        available_networks = await util.get_available_networks(client, default_networks_ips, number_of_infrastructures)
+
         await util.pull_images(client, images=set(constants.IMAGE_LIST))
+
+        infra_names = (await db_session.scalars(select(Infrastructure.name))).all()
+        new_infra_names = []
+
+        for i in range(number_of_infrastructures):
+            while (infra_name := randomname.generate("adj/colors")) in infra_names:
+                continue
+            new_infra_names.append(infra_name)
 
         for i in range(int(number_of_infrastructures)):
             # need to parse infra at every iteration due to python reference holding and because sqlalchemy models
             # cannot be deep copied
-            template = await template_controller.get_template(run.template_id, db_session)
-            parser = CYSTParser(client)
-
-            await parser.parse_cyst_output(template.description)
-
-            if not available_networks:
-                available_networks += await util.get_available_networks(
-                    client, parser.networks, number_of_infrastructures
-                )
 
             # TODO: Move checking of used ips/names into the parser?
             # get the correct amount of networks for infra from available network list
-            slice_start = 0 if i == 0 else (len(parser.networks) + 1) * i
-            slice_end = slice_start + len(parser.networks) + 1
+            if len(available_networks) > 1:
+                slice_start = 0 if i == 0 else (len(default_networks_ips) + 1) * i
+                slice_end = slice_start + len(default_networks_ips) + 1
+                infrastructure_networks = available_networks[slice_start:slice_end]
+            else:
+                infrastructure_networks = available_networks
 
-            infra_names = (await db_session.scalars(select(Infrastructure.name))).all()
-
-            while (infra_name := randomname.generate("adj/colors")) in infra_names:
-                continue
-
-            infrastructure = Infrastructure(
-                routers=parser.routers,
-                nodes=parser.nodes,
-                networks=parser.networks,
-                name=infra_name,
-            )
-
-            controller = await InfrastructureController.prepare_controller_for_infra_creation(
-                images=parser.images,
-                available_networks=available_networks[slice_start:slice_end],
-                infrastructure=infrastructure,
-            )
-
-            await controller.change_names(
-                container_names=docker_container_names,
-                network_names=docker_network_names,
-            )
-            logger.debug(
-                "Docker names changed",
-                infrastructure_name=infrastructure.name,
-            )
-
-            run_instance = Instance(
-                run=run,
-                agent_instances="placeholder",
-                infrastructure=controller.infrastructure,
-            )
-
-            logger.debug(
-                "Starting infrastructure",
-                infrastructure_name=infrastructure.name,
-                infrastructure_id=infrastructure.id,
-            )
-
-            try:
-                controller_start_tasks.add(asyncio.create_task(controller.start()))
-                await asyncio.gather(*controller_start_tasks)
-                db_session.add(run_instance)
-                await db_session.commit()
-            except (ImageNotFound, APIError, RuntimeError, Exception) as error:
-                logger.debug(
-                    f"Deleting instance due to {type(error).__name__}",
-                    infrastructure_id=infrastructure.id,
-                    exception=error,
+            logger.debug("Infrastructure networks", networks=infrastructure_networks, infra_name=new_infra_names[i])
+            controllers.append(
+                await InfrastructureController.create_controller(
+                    client,
+                    infrastructure_networks,
+                    template.description,
+                    docker_container_names,
+                    docker_network_names,
+                    new_infra_names[i],
                 )
-                # TODO: Is there an exception where the containers(docker_ids) are created?
-                try:
-                    await controller.stop()
-                except NullResource:
-                    pass
-                raise error
+            )
+
+        build_infrastructure_tasks = {
+            asyncio.create_task(controller.build_infrastructure(run)) for controller in controllers
+        }
+
+        instances = await asyncio.gather(*build_infrastructure_tasks)
+        db_session.add_all(instances)
+        await db_session.commit()
 
     @staticmethod
     async def stop_infra(infrastructure: Infrastructure):

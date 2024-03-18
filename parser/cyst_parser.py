@@ -11,17 +11,35 @@ from cyst.api.environment.environment import Environment
 
 from dr_emu.models import Network, Service, Router, Interface, Node, Attacker, FirewallRule
 from parser.util import constants
+from cyst_infrastructure import all_config_items
 
 
 class CYSTParser:
-    def __init__(self, client: DockerClient):
+
+    @property
+    def infrastructure_items(self):
+        return all_config_items
+
+    def __init__(self, client: DockerClient, infra_description: str):
         self.client = client
+        self.infra_description = infra_description
         self.router_image = constants.IMAGE_ROUTER
         self.networks: list[Network] = []
         self.routers: list[Router] = []
         self.attacker: Attacker
         self.nodes: list[Node] = []
         self.images: set = set()
+
+    # @property
+    # def infrastructure_items(self):
+    #     if not self._infrastructure_items:
+    #         # deserialize json pickled config
+    #         env = Environment.create()
+    #
+    #         # SECURITY VULNERABILITY, EXECUTES PYTHON CODE FROM USER INPOUT
+    #         self._infrastructure_items = env.configuration.general.load_configuration(self.infra_description)
+    #
+    #     return self._infrastructure_items
 
     # TODO
     async def parse_images(self):
@@ -30,6 +48,17 @@ class CYSTParser:
         :return:
         """
         self.images = set(constants.IMAGE_LIST)
+
+    async def get_default_networks_ips(self) -> set[IPNetwork]:
+        network_ips = set()
+
+        for item in self.infrastructure_items:
+            if type(item) is RouterConfig:
+                for interface in item.interfaces:
+                    if not any(interface.net == network_ip for network_ip in network_ips):
+                        network_ips.add(interface.net)
+
+        return network_ips
 
     async def find_network(self, subnet: IPNetwork) -> Network:
         """
@@ -239,24 +268,19 @@ class CYSTParser:
         await self.parse_images()
         logger.info("Completed parsing cyst infrastructure description")
 
-    async def parse_cyst_output(self, config_description: str):
+    async def parse_cyst_output(self):
         """
         Create all necessary models for infrastructure based on parsed objects from cyst prescription.
         config_items: list of configurations from cyst
         :return:
         """
         logger.debug("Parsing cyst infrastructure description")
-        # deserialize json pickled config
-        env = Environment.create()
-
-        # SECURITY VULNERABILITY, EXECUTES PYTHON CODE FROM USER INPOUT
-        config_items = env.configuration.general.load_configuration(config_description)
 
         cyst_routers = []
         cyst_nodes = []
         attacker = None
 
-        for item in config_items:
+        for item in self.infrastructure_items:
             if type(item) is RouterConfig:
                 cyst_routers.append(item)
             elif type(item) is NodeConfig:
@@ -270,3 +294,7 @@ class CYSTParser:
         await self.parse_nodes(cyst_nodes, attacker)
         await self.parse_images()
         logger.info("Completed parsing cyst infrastructure description")
+
+    @infrastructure_items.setter
+    def infrastructure_items(self, value):
+        self._infrastructure_items = value

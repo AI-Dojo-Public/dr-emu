@@ -45,7 +45,7 @@ class DockerMixin:
     name: Mapped[str] = mapped_column()
     _client: DockerClient = None
     kwargs: Mapped[Optional[dict]] = mapped_column(JSONType, nullable=True)
-    
+
     @property
     def client(self):
         # testing issue
@@ -167,15 +167,20 @@ class Network(DockerMixin, Base):
         ipam_config = IPAMConfig(pool_configs=[ipam_pool])
 
         logger.debug("Creating network", ip=self._ipaddress, name=self.name)
-        self.docker_id = (
-            await asyncio.to_thread(
-                self.client.networks.create,
-                self.name,
-                driver=self.driver,
-                ipam=ipam_config,
-                attachable=self.attachable,
-            )
-        ).id
+        try:
+            self.docker_id = (
+                await asyncio.to_thread(
+                    self.client.networks.create,
+                    self.name,
+                    driver=self.driver,
+                    ipam=ipam_config,
+                    attachable=self.attachable,
+                )
+            ).id
+        except APIError as err:
+            logger.debug(str(err), ip=self._ipaddress, name=self.name)
+            raise err
+
         logger.debug("Network created", ip=self._ipaddress, name=self.name)
 
     async def delete(self):
@@ -412,7 +417,7 @@ class Router(Appliance):
             if interface.network not in unique_networks:
                 unique_interfaces.append(interface)
                 unique_networks.add(interface.network)
-                
+
         for interface in unique_interfaces:
             logger.debug(f"Connecting router {self.name} to network {interface.network.name}")
             (await interface.network.get()).connect(self.name, ipv4_address=str(interface.ipaddress))
@@ -422,8 +427,13 @@ class Router(Appliance):
         Start a docker container representing a Router.
         :return:
         """
-        await self.create()
-        await asyncio.to_thread((await self.get()).start)
+        try:
+            await self.create()
+            await asyncio.to_thread((await self.get()).start)
+        except APIError as err:
+            logger.debug(str(err), container_name=self.name)
+            raise err
+
         await self.connect_to_networks()
 
 
@@ -503,7 +513,11 @@ class Node(Appliance):
         Start a docker container representing a Node.
         :return:
         """
-        await asyncio.to_thread((await self.get()).start)
+        try:
+            await asyncio.to_thread((await self.get()).start)
+        except APIError as err:
+            logger.debug(str(err), container_name=self.name)
+            raise err
 
         start_service_tasks = await self.start_services()
         await asyncio.gather(*start_service_tasks)
@@ -627,7 +641,12 @@ class Service(DockerContainerMixin, Base):
         if self.dependencies:
             if not await self.wait_for_dependency():
                 raise RuntimeError(f"Some dependency of container {self.name} didn't start within timeout")
-        await asyncio.to_thread((await self.get()).start)
+
+        try:
+            await asyncio.to_thread((await self.get()).start)
+        except APIError as err:
+            logger.debug(str(err), container_name=self.name)
+            raise err
 
     async def delete(self):
         """
