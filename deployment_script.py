@@ -10,7 +10,7 @@ config = env.configuration.general.save_configuration(indent=1)
 
 def create_agent() -> dict:
     data = {
-      "access_token": "Q6csqyR25U_mzo6ygcQz",    # TODO: insert the repo token
+      "access_token": "<token>",    # TODO: insert the repo token
       "git_project_url": "https://gitlab.ics.muni.cz/ai-dojo/agent-dummy.git",
       "name": "testagent",
       "package_name": "aidojo-agent",
