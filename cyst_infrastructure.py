@@ -28,7 +28,6 @@ from cyst.api.logic.access import (
     AuthenticationTokenSecurity,
 )
 from cyst.api.network.firewall import FirewallPolicy, FirewallChainType, FirewallRule
-from cyst.api.environment.environment import Environment
 
 
 # -----------------------------------------------------------------------------
@@ -61,9 +60,9 @@ scripted_attacker = NodeConfig(
         #     access_level=AccessLevel.LIMITED
         # ),
         PassiveServiceConfig(
-            type="msf",
+            type="metasploit",
             owner="msf",
-            version="1.0.0",
+            version="0.1.0",
             local=True,
             access_level=AccessLevel.LIMITED
         ),
@@ -92,15 +91,15 @@ wordpress_srv = NodeConfig(
     active_services=[],
     passive_services=[
         PassiveServiceConfig(
-            type="wordpress_app",
+            type="wordpress",
             owner="wordpress",
             version="6.1.1",
             local=False,
             access_level=AccessLevel.LIMITED,
-            authentication_providers=[local_password_auth("wordpress_app_pwd")],
+            authentication_providers=[local_password_auth("wordpress_pwd")],
             access_schemes=[
                 AccessSchemeConfig(
-                    authentication_providers=["wordpress_app_pwd"],
+                    authentication_providers=["wordpress_pwd"],
                     authorization_domain=AuthorizationDomainConfig(
                         type=AuthorizationDomainType.LOCAL,
                         authorizations=[AuthorizationConfig("wordpress", AccessLevel.ELEVATED)],
@@ -112,14 +111,14 @@ wordpress_srv = NodeConfig(
     traffic_processors=[],
     interfaces=[InterfaceConfig(IPAddress("192.168.3.11"), IPNetwork("192.168.3.0/24"))],
     shell="",
-    id="wordpress_app_node",
+    id="wordpress_node",
 )
 
 wordpress_db = NodeConfig(
     active_services=[],
     passive_services=[
         PassiveServiceConfig(
-            type="wordpress_db",
+            type="mysql",
             owner="mysql",
             version="8.0.31",
             local=False,
@@ -465,7 +464,7 @@ wifi_router = RouterConfig(
 )
 
 inside_connections = [
-    ConnectionConfig("wordpress_app_node", 0, "internal_router", 5),
+    ConnectionConfig("wordpress_node", 0, "internal_router", 5),
     ConnectionConfig("wordpress_db_node", 0, "internal_router", 6),
     ConnectionConfig("haraka_node", 0, "internal_router", 7),
     ConnectionConfig("postgres_node", 0, "internal_router", 8),

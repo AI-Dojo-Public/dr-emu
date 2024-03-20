@@ -83,7 +83,7 @@ class DockerContainerMixin(DockerMixin):
     Base class for docker container models
     """
 
-    image: Mapped[str] = mapped_column(default=constants.IMAGE_BASE)
+    image: Mapped[str] = mapped_column()
     environment: Mapped[dict] = mapped_column(JSONType, nullable=True)
     command: Mapped[str] = mapped_column(ScalarListType, nullable=True)
     healthcheck: Mapped[dict] = mapped_column(JSONType, nullable=True)

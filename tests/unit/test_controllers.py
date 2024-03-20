@@ -12,7 +12,7 @@ class TestInfrastructureController:
     @pytest.fixture(autouse=True)
     def controller(self, mocker):
         mocker.patch("dr_emu.controllers.infrastructure.docker.from_env")
-        self.controller = InfrastructureController(images=set(), infrastructure=Mock(name="test_infra"))
+        self.controller = InfrastructureController(infrastructure=Mock(name="test_infra"))
 
     async def test_start(self, mocker):
         asyncio_gather_spy = mocker.spy(asyncio, "gather")

@@ -1,5 +1,5 @@
 import asyncio
-from typing import Union, Optional, Sequence
+from typing import Optional, Sequence
 
 import randomname
 from sqlalchemy import select
@@ -20,25 +20,18 @@ from dr_emu.models import (
     Instance,
     Run,
     Node,
-    Service,
-    DependsOn,
 )
 
 from parser.cyst_parser import CYSTParser
+from cyst_infrastructure import all_config_items
 
 
 class InfrastructureController:
     """
     Class for handling actions regarding creating and destroying the infrastructure in docker.
     """
-
-    def __init__(
-        self,
-        images: set,
-        infrastructure: Optional[Infrastructure] = None,
-    ):
+    def __init__(self, infrastructure: Optional[Infrastructure] = None):
         self.client = docker.from_env()
-        self.images = images
         self.infrastructure = infrastructure
 
     @staticmethod
@@ -264,26 +257,23 @@ class InfrastructureController:
             else:
                 network_names.add(network.name)
 
-    async def resolve_dependencies(self):
-        """
-        Add startup container dependencies to models
-        """
-        logger.debug(
-            "Resolving container dependencies",
-            infrastructure_name=self.infrastructure.name,
-        )
-        containers: list[Service] = []
-        for node in self.infrastructure.nodes:
-            containers += node.services
-
-        container_dict: dict[str:Service] = {container.name: container for container in containers}
-        for container in containers:
-            if container.name in constants.TESTBED_INFO.keys():
-                if dependencies := constants.TESTBED_INFO[container.name].get(constants.DEPENDS_ON):
-                    for key, value in dependencies.items():
-                        if dependency := container_dict.get(key):
-                            container.dependencies.append(DependsOn(dependency=dependency, state=value))
-        logger.debug("Dependencies resolved", infrastructure_name=self.infrastructure.name)
+    # async def resolve_dependencies(self):  # TODO: move into parser
+    #     """
+    #     Add startup container dependencies to models
+    #     """
+    #     logger.debug("Resolving container dependencies", infrastructure_name=self.infrastructure.name)
+    #     containers: list[Service] = []
+    #     for node in self.infrastructure.nodes:
+    #         containers += node.services
+    #
+    #     container_dict: dict[str, Service] = {container.name: container for container in containers}
+    #     for container in containers:
+    #         if container.name in constants.TESTBED_INFO.keys():
+    #             if dependencies := constants.TESTBED_INFO[container.name].get(constants.DEPENDS_ON):
+    #                 for key, value in dependencies.items():
+    #                     if dependency := container_dict.get(key):
+    #                         container.dependencies.append(DependsOn(dependency=dependency, state=value))
+    #     logger.debug("Dependencies resolved", infrastructure_name=self.infrastructure.name)
 
     async def build_infrastructure(self, run) -> Instance:
         run_instance = Instance(
@@ -315,17 +305,12 @@ class InfrastructureController:
             raise error
 
     @staticmethod
-    async def prepare_controller_for_infra_creation(
-        infrastructure: Infrastructure,
-        images,
-        available_networks,
-    ):
+    async def prepare_controller_for_infra_creation(infrastructure: Infrastructure, available_networks):
         """
         Creates a management network for routers and changes names and ip addresses of models for new infrastructure if
         needed.
         :param available_networks: IP addresses of networks that are available to use for building Infra
         :param infrastructure: Infrastructure object
-        :param images: images needed for Infrastructure containers
         :return: Controller with prepared object for building a new infrastructure
         """
         logger.debug(
@@ -334,9 +319,7 @@ class InfrastructureController:
             infrastructure_id=infrastructure.id,
         )
 
-        controller = InfrastructureController(images, infrastructure)
-
-        await controller.resolve_dependencies()
+        controller = InfrastructureController(infrastructure)
 
         used_network_names = await util.get_network_names(docker.from_env())
 
@@ -375,23 +358,16 @@ class InfrastructureController:
 
     @staticmethod
     async def create_controller(
-        client, available_networks, template_description, docker_container_names, docker_network_names, infra_name
+            available_networks: list[IPNetwork],
+            parser: CYSTParser,
+            docker_container_names: set[str],
+            docker_network_names: set[str],
+            infra_name: str
     ):
-        # need to parse infra at every iteration due to python reference holding and because sqlalchemy models
-        # cannot be deep copied
-        parser = CYSTParser(client, template_description)
-
-        await parser.parse_cyst_output()
-
-        infrastructure = Infrastructure(
-            routers=parser.routers,
-            nodes=parser.nodes,
-            networks=parser.networks,
-            name=infra_name,
-        )
+        networks, routers, nodes = await parser.bake_models()
+        infrastructure = Infrastructure(routers=routers, nodes=nodes, networks=networks, name=infra_name)
 
         controller = await InfrastructureController.prepare_controller_for_infra_creation(
-            images=parser.images,
             available_networks=available_networks,
             infrastructure=infrastructure,
         )
@@ -418,49 +394,46 @@ class InfrastructureController:
         """
         logger.info("Building infrastructures")
         client = docker.from_env()
-        run_instances = []
         controllers = []
 
         docker_container_names = await util.get_container_names(client)
         docker_network_names = await util.get_network_names(client)
-        template = await template_controller.get_template(run.template_id, db_session)
 
-        parser = CYSTParser(client, template.description)
-        default_networks_ips = await parser.get_default_networks_ips()
-        available_networks = await util.get_available_networks(client, default_networks_ips, number_of_infrastructures)
+        # template = await template_controller.get_template(run.template_id, db_session)
+        parser = CYSTParser(all_config_items)  # TODO:  # parser = CYSTParser(template.description)
+        await parser.parse()
 
-        await util.pull_images(client, images=set(constants.IMAGE_LIST))
+        available_networks = await util.get_available_networks(client, parser.networks_ips, number_of_infrastructures)
 
-        infra_names = (await db_session.scalars(select(Infrastructure.name))).all()
-        new_infra_names = []
+        await util.pull_images(client, parser.docker_images)
+
+        used_infrastructure_names = (await db_session.scalars(select(Infrastructure.name))).all()
+        infrastructure_names = []
+        for i in range(number_of_infrastructures):
+            while (infra_name := randomname.generate("adj/colors")) in used_infrastructure_names:
+                continue
+            infrastructure_names.append(infra_name)
 
         for i in range(number_of_infrastructures):
-            while (infra_name := randomname.generate("adj/colors")) in infra_names:
-                continue
-            new_infra_names.append(infra_name)
-
-        for i in range(int(number_of_infrastructures)):
-            # need to parse infra at every iteration due to python reference holding and because sqlalchemy models
-            # cannot be deep copied
-
             # TODO: Move checking of used ips/names into the parser?
             # get the correct amount of networks for infra from available network list
-            if len(available_networks) > 1:
-                slice_start = 0 if i == 0 else (len(default_networks_ips) + 1) * i
-                slice_end = slice_start + len(default_networks_ips) + 1
+            if number_of_infrastructures > 1:
+                slice_start = 0 if i == 0 else (len(parser.networks_ips) + 1) * i
+                slice_end = slice_start + len(parser.networks_ips) + 1
                 infrastructure_networks = available_networks[slice_start:slice_end]
             else:
                 infrastructure_networks = available_networks
 
-            logger.debug("Infrastructure networks", networks=infrastructure_networks, infra_name=new_infra_names[i])
+            logger.debug(
+                "Infrastructure networks", networks=infrastructure_networks, infra_name=infrastructure_names[i]
+            )
             controllers.append(
                 await InfrastructureController.create_controller(
-                    client,
                     infrastructure_networks,
-                    template.description,
+                    parser,
                     docker_container_names,
                     docker_network_names,
-                    new_infra_names[i],
+                    infrastructure_names[i],
                 )
             )
 
@@ -479,7 +452,7 @@ class InfrastructureController:
         :param infrastructure: Infrastructure object
         :return:
         """
-        controller = InfrastructureController(set(), infrastructure)
+        controller = InfrastructureController(infrastructure)
 
         # destroy docker objects
         await controller.stop()
