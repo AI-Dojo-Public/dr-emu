@@ -203,7 +203,7 @@ class InfrastructureController:
                 node_tasks.add(asyncio.create_task(node.delete()))
         return node_tasks
 
-    async def change_ipadresses(self, available_networks: list[IPNetwork]):
+    async def change_ipaddresses(self, available_networks: list[IPNetwork]):
         """
         Change ip addresses in models.
         :param available_networks: available ip addresses for networks
@@ -275,6 +275,32 @@ class InfrastructureController:
     #                         container.dependencies.append(DependsOn(dependency=dependency, state=value))
     #     logger.debug("Dependencies resolved", infrastructure_name=self.infrastructure.name)
 
+    async def create_management_network(self, available_networks):
+        used_network_names = await util.get_network_names(docker.from_env())
+
+        while (management_name := randomname.generate("adj/colors", "management")) in used_network_names:
+            continue
+
+        management_network = Network(
+            ipaddress=available_networks[-1],
+            router_gateway=available_networks[-1][1],
+            name=management_name,
+            network_type=constants.NETWORK_TYPE_MANAGEMENT,
+        )
+
+        for router, ip_address in zip(self.infrastructure.routers, management_network.ipaddress[2:]):
+            if router.router_type == constants.ROUTER_TYPE_PERIMETER:
+                router.interfaces.append(
+                    Interface(
+                        ipaddress=management_network.router_gateway,
+                        network=management_network,
+                    )
+                )
+            else:
+                router.interfaces.append(Interface(ipaddress=ip_address, network=management_network))
+
+        self.infrastructure.networks.append(management_network)
+
     async def build_infrastructure(self, run) -> Instance:
         run_instance = Instance(
             run=run,
@@ -305,7 +331,10 @@ class InfrastructureController:
             raise error
 
     @staticmethod
-    async def prepare_controller_for_infra_creation(infrastructure: Infrastructure, available_networks):
+    async def prepare_controller_for_infra_creation(
+        infrastructure: Infrastructure,
+        available_networks: list[IPNetwork],
+    ):
         """
         Creates a management network for routers and changes names and ip addresses of models for new infrastructure if
         needed.
@@ -321,33 +350,10 @@ class InfrastructureController:
 
         controller = InfrastructureController(infrastructure)
 
-        used_network_names = await util.get_network_names(docker.from_env())
-
-        while (management_name := randomname.generate("adj/colors", "management")) in used_network_names:
-            continue
-        used_network_names.add(management_name)
-        management_network = Network(
-            ipaddress=available_networks[-1],
-            router_gateway=available_networks[-1][1],
-            name=management_name,
-            network_type=constants.NETWORK_TYPE_MANAGEMENT,
-        )
-
-        for router, ip_address in zip(controller.infrastructure.routers, management_network.ipaddress[2:]):
-            if router.router_type == constants.ROUTER_TYPE_PERIMETER:
-                router.interfaces.append(
-                    Interface(
-                        ipaddress=management_network.router_gateway,
-                        network=management_network,
-                    )
-                )
-            else:
-                router.interfaces.append(Interface(ipaddress=ip_address, network=management_network))
-
-        controller.infrastructure.networks.append(management_network)
+        await controller.create_management_network(available_networks)
 
         if set(available_networks) != {network.ipaddress for network in controller.infrastructure.networks}:
-            await asyncio.gather(controller.change_ipadresses(available_networks))
+            await asyncio.gather(controller.change_ipaddresses(available_networks))
             logger.debug(
                 "IP addresses changed for new infrastructure",
                 infrastructure_name=infrastructure.name,
