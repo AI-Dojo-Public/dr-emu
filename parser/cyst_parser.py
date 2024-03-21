@@ -3,7 +3,12 @@ from netaddr import IPNetwork
 from uuid import uuid1
 
 from cyst.api.configuration import (
-    RouterConfig, NodeConfig, ActiveServiceConfig, PassiveServiceConfig, ExploitConfig, ConnectionConfig
+    RouterConfig,
+    NodeConfig,
+    ActiveServiceConfig,
+    PassiveServiceConfig,
+    ExploitConfig,
+    ConnectionConfig,
 )
 from cyst.api.configuration.configuration import ConfigItem
 from cyst.api.environment.environment import Environment
@@ -15,7 +20,9 @@ from dr_emu.models import (
     Network as DockerNetwork,
     Interface as DockerInterface,
     FirewallRule as DockerFirewallRule,
-    Router as DockerRouter, Service as DockerService, Node as DockerNode
+    Router as DockerRouter,
+    Service as DockerService,
+    Node as DockerNode,
 )
 from parser.lib import containers
 
@@ -80,7 +87,7 @@ class CYSTParser:
             for interface in cyst_router.interfaces:
                 if not any(interface.net == network.ip_address for network in self._networks):
                     while (
-                            network_name := randomname.get_name(adj="colors", noun="astronomy", sep="_")
+                        network_name := randomname.get_name(adj="colors", noun="astronomy", sep="_")
                     ) in generated_names:
                         continue
 
@@ -172,10 +179,13 @@ class CYSTParser:
         for router in self._routers:
             interfaces: list[DockerInterface] = list()
             firewall_rules: list[DockerFirewallRule] = list()
+            router_interface_ips = set()
             for interface in router.interfaces:
-                interfaces.append(
-                    DockerInterface(ipaddress=interface.ip_address, network=networks[interface.network.name])
-                )
+                if interface.ip_address not in router_interface_ips:
+                    interfaces.append(
+                        DockerInterface(ipaddress=interface.ip_address, network=networks[interface.network.name])
+                    )
+                    router_interface_ips.add(interface.ip_address)
             for firewall_rule in router.firewall_rules:
                 firewall_rules.append(
                     DockerFirewallRule(
@@ -204,7 +214,7 @@ class CYSTParser:
                         image=service.container.image,
                         environment=service.container.environment,
                         command=service.container.command,
-                        healthcheck=service.container.healthcheck
+                        healthcheck=service.container.healthcheck,
                     )
                 )
             for interface in node.interfaces:

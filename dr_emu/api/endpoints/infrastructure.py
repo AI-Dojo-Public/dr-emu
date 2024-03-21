@@ -47,8 +47,9 @@ async def get_infra(infrastructure_id: int, session: DBSession):
         infrastructure = await InfrastructureController.get_infra_info(infrastructure_id, session)
 
         networks_info = []
-        appliances_info = []
+
         for network in infrastructure.networks:
+            appliances_info = []
             for interface in network.interfaces:
                 appliances_info.append(ApplianceSchema(name=interface.appliance.name, ip=str(interface.ipaddress)))
             network_info = NetworkSchema(name=network.name, ip=str(network.ipaddress), appliances=appliances_info)
