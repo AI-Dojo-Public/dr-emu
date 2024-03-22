@@ -514,7 +514,7 @@ class InfrastructureController:
                     .options(
                         joinedload(Infrastructure.instance),
                         joinedload(Infrastructure.routers),
-                        joinedload(Infrastructure.networks),
+                        joinedload(Infrastructure.networks).joinedload(Network.interfaces),
                         joinedload(Infrastructure.nodes).joinedload(Node.services),
                     )
                 )

@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 import requests
 import json
 from cyst.api.environment.environment import Environment
@@ -8,9 +9,9 @@ env.configure(*all_config_items)
 config = env.configuration.general.save_configuration(indent=1)
 
 
-def create_agent() -> dict:
+def create_agent(token: str) -> dict:
     data = {
-      "access_token": "<token>",    # TODO: insert the repo token
+      "access_token": token,
       "git_project_url": "https://gitlab.ics.muni.cz/ai-dojo/agent-dummy.git",
       "name": "testagent",
       "package_name": "aidojo-agent",
@@ -65,17 +66,17 @@ def start_run(run_id: int, instances: int = 1):
     if run_start.status_code != 200:
         raise RuntimeError(f"message: {run_start.text}, code: {run_start.status_code}")
     else:
-        print("Run started successfully")
+        print(f"Run {run_id} started successfully")
 
 
 def main():
-    try:
-        agent_id = create_agent()["id"]
-        template_id = create_template()["id"]
-        run_id = create_run([agent_id], template_id)["id"]
-        start_run(run_id)
-    except RuntimeError as err:
-        print(err)
+    parser = ArgumentParser()
+    parser.add_argument('token')
+    args = parser.parse_args()
+    agent_id = create_agent(args.token)["id"]
+    template_id = create_template()["id"]
+    run_id = create_run([agent_id], template_id)["id"]
+    start_run(run_id)
 
 
 if __name__ == '__main__':
