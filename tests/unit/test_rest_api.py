@@ -174,6 +174,15 @@ class TestRun:
         run_schema["infrastructure_ids"] = [1]
         assert response.json() == [run_schema]
 
+    async def test_get_run(self, test_app, run, mocker, run_schema):
+        mock_list_runs = AsyncMock(return_value=run)
+        mocker.patch(f"{self.run_controller}.get_run", side_effect=mock_list_runs)
+
+        response = test_app.get(endpoints.Run.get.format(run.id))
+        assert response.status_code == 200
+        run_schema["infrastructure_ids"] = [1]
+        assert response.json() == run_schema
+
     async def test_create_run(self, test_app, run, mocker, run_schema):
         mocker.patch(f"{self.run_controller}.create_run", side_effect=AsyncMock(return_value=run))
         response = test_app.post(

@@ -104,3 +104,22 @@ async def list_runs(session: DBSession):
         return result
     else:
         return []
+
+
+@router.get("/get/{run_id}/", response_model=RunInfo)
+async def get_run(run_id: int, session: DBSession):
+    try:
+        run = await run_controller.get_run(run_id, session)
+    except NoResultFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
+
+    agent_ids = [agent.id for agent in run.agents]
+    infrastructure_ids = [instance.infrastructure.id for instance in run.instances]
+
+    return RunInfo(
+        id=run.id,
+        name=run.name,
+        template_id=run.template_id,
+        agent_ids=agent_ids,
+        infrastructure_ids=infrastructure_ids,
+    )

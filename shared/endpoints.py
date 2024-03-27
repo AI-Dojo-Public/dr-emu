@@ -19,6 +19,7 @@ class Run:
     stop = "/runs/stop/{}/"
     start = "/runs/start/{}/"
     list = "/runs/"
+    get = "/runs/get/{}/"
 
 
 class Infrastructure:

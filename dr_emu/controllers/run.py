@@ -58,6 +58,30 @@ async def list_runs(db_session: AsyncSession) -> Sequence[Run]:
     return runs
 
 
+async def get_run(run_id: int, db_session: AsyncSession) -> Run:
+    """
+    List all Runs saved in DB.
+    :param run_id: run ID
+    :param db_session: Async database session
+    :return: list of Runs
+    """
+    logger.debug("Listing runs")
+
+    run = (
+        (
+            await db_session.execute(
+                select(Run)
+                .where(Run.id == run_id)
+                .options(joinedload(Run.agents), joinedload(Run.instances).joinedload(Instance.infrastructure))
+            )
+        )
+        .unique()
+        .scalar_one()
+    )
+
+    return run
+
+
 async def delete_run(run_id: int, db_session: AsyncSession) -> Run:
     """
     Delete Run specified by ID from DB.
