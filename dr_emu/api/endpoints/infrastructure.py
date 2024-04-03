@@ -51,7 +51,13 @@ async def get_infra(infrastructure_id: int, session: DBSession):
         for network in infrastructure.networks:
             appliances_info = []
             for interface in network.interfaces:
-                appliances_info.append(ApplianceSchema(name=interface.appliance.name, ip=str(interface.ipaddress)))
+                appliances_info.append(
+                    ApplianceSchema(
+                        name=interface.appliance.name,
+                        ip=str(interface.ipaddress),
+                        original_ip=str(interface.original_ip),
+                    )
+                )
             network_info = NetworkSchema(name=network.name, ip=str(network.ipaddress), appliances=appliances_info)
             networks_info.append(network_info)
 

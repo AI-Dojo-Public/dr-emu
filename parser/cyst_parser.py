@@ -183,7 +183,8 @@ class CYSTParser:
             for interface in router.interfaces:
                 if interface.ip_address not in router_interface_ips:
                     interfaces.append(
-                        DockerInterface(ipaddress=interface.ip_address, network=networks[interface.network.name])
+                        DockerInterface(ipaddress=interface.ip_address, original_ip=interface.ip_address,
+                                        network=networks[interface.network.name])
                     )
                     router_interface_ips.add(interface.ip_address)
             for firewall_rule in router.firewall_rules:
@@ -219,7 +220,8 @@ class CYSTParser:
                 )
             for interface in node.interfaces:
                 interfaces.append(
-                    DockerInterface(ipaddress=interface.ip_address, network=networks[interface.network.name])
+                    DockerInterface(ipaddress=interface.ip_address, original_ip=interface.ip_address,
+                                    network=networks[interface.network.name])
                 )
 
             nodes[node.name] = DockerNode(
