@@ -204,6 +204,7 @@ class Interface(Base):
     network_id: Mapped[int] = mapped_column(ForeignKey("network.id"))
     network: Mapped["Network"] = relationship(back_populates="interfaces")
     _ipaddress = mapped_column("ipaddress", String)
+    _original_ip = mapped_column("original_ip", String, nullable=True)
     appliance: Mapped["Appliance"] = relationship(back_populates="interfaces")
     appliance_id: Mapped[int] = mapped_column(ForeignKey("appliance.id"))
 
@@ -214,6 +215,14 @@ class Interface(Base):
     @ipaddress.setter
     def ipaddress(self, ipaddress: IPAddress):
         self._ipaddress = str(ipaddress)
+
+    @property
+    def original_ip(self):
+        return IPAddress(self._original_ip) if self._original_ip else None
+
+    @original_ip.setter
+    def original_ip(self, original_ip: IPAddress):
+        self._original_ip = str(original_ip) if original_ip else None
 
 
 class Appliance(DockerContainerMixin, Base):

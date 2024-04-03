@@ -16,6 +16,7 @@ class InfrastructureSchema(BaseModel):
 class ApplianceSchema(BaseModel):
     name: constr(max_length=30)
     ip: str
+    original_ip: str
 
 
 class NetworkSchema(BaseModel):
