@@ -4,23 +4,25 @@ import json
 from cyst.api.environment.environment import Environment
 from cyst_infrastructure import all_config_items
 
-env = Environment.create()
-env.configure(*all_config_items)
-config = env.configuration.general.save_configuration(indent=1)
+
+def create_configuration(config_items):
+    env = Environment.create()
+    env.configure(*config_items)
+    return env.configuration.general.save_configuration(indent=1)
 
 
 def create_agent(token: str) -> dict:
     data = {
-      "access_token": token,
-      "git_project_url": "https://gitlab.ics.muni.cz/ai-dojo/agent-dummy.git",
-      "name": "testagent",
-      "package_name": "aidojo-agent",
-      "role": "attacker",
-      "username": "oauth2"
+        "access_token": token,
+        "git_project_url": "https://gitlab.ics.muni.cz/ai-dojo/agent-dummy.git",
+        "name": "testagent",
+        "package_name": "aidojo-agent",
+        "role": "attacker",
+        "username": "oauth2",
     }
 
     print("Creating Agent")
-    agent = requests.post('http://127.0.0.1:8000/agents/create/git/', data=json.dumps(data))
+    agent = requests.post("http://127.0.0.1:8000/agents/create/git/", data=json.dumps(data))
     if agent.status_code != 201:
         raise RuntimeError(f"message: {agent.text}, code: {agent.status_code}")
     else:
@@ -28,14 +30,11 @@ def create_agent(token: str) -> dict:
         return agent.json()
 
 
-def create_template() -> dict:
-    data = {
-      "name": "demo",
-      "description": str(config)
-    }
+def create_template(config) -> dict:
+    data = {"name": "demo", "description": str(config)}
 
     print("Creating Template")
-    template = requests.post('http://127.0.0.1:8000/templates/create/', data=json.dumps(data))
+    template = requests.post("http://127.0.0.1:8000/templates/create/", data=json.dumps(data))
     if template.status_code != 201:
         raise RuntimeError(f"message: {template.text}, code: {template.status_code}")
     else:
@@ -44,14 +43,10 @@ def create_template() -> dict:
 
 
 def create_run(agent_ids: list[int], template_id: int) -> dict:
-    data = {
-      "name": "demo",
-      "template_id": template_id,
-      "agent_ids": agent_ids
-    }
+    data = {"name": "demo", "template_id": template_id, "agent_ids": agent_ids}
 
     print("Creating Run")
-    run = requests.post('http://127.0.0.1:8000/runs/create/', data=json.dumps(data))
+    run = requests.post("http://127.0.0.1:8000/runs/create/", data=json.dumps(data))
     if run.status_code != 201:
         raise RuntimeError(f"message: {run.text}, code: {run.status_code}")
     else:
@@ -61,7 +56,7 @@ def create_run(agent_ids: list[int], template_id: int) -> dict:
 
 def start_run(run_id: int, instances: int = 1):
     print("Starting Run")
-    run_start = requests.post(f'http://127.0.0.1:8000/runs/start/{run_id}?instances={instances}')
+    run_start = requests.post(f"http://127.0.0.1:8000/runs/start/{run_id}?instances={instances}")
 
     if run_start.status_code != 200:
         raise RuntimeError(f"message: {run_start.text}, code: {run_start.status_code}")
@@ -69,15 +64,19 @@ def start_run(run_id: int, instances: int = 1):
         print(f"Run {run_id} started successfully")
 
 
-def main():
-    parser = ArgumentParser()
-    parser.add_argument('token')
-    args = parser.parse_args()
-    agent_id = create_agent(args.token)["id"]
-    template_id = create_template()["id"]
+def main(config_items=all_config_items, token: str = None):
+    if token is None:
+        parser = ArgumentParser()
+        parser.add_argument("token")
+        token = parser.parse_args().token
+
+    agent_id = create_agent(token)["id"]
+    config = create_configuration(config_items)
+    template_id = create_template(config)["id"]
     run_id = create_run([agent_id], template_id)["id"]
     start_run(run_id)
+    return run_id
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

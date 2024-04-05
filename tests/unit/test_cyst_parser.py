@@ -78,11 +78,12 @@ class TestCYSTParser:
     path = "parser.cyst_parser"
 
     @pytest.fixture(autouse=True)
-    def parser(self):
-        self.parser = CYSTParser(Mock())
+    def parser(self, mocker):
+        mocker.patch("parser.cyst_parser.CYSTParser._load_infrastructure_description")
+        self.parser = CYSTParser("")
 
     async def test_find_network(self, network):
-        self.parser._networks.append(network)
+        self.parser.networks.append(network)
         found_network = await self.parser._find_network(IPNetwork("127.0.0.0/24"))
         assert found_network == network
 
@@ -90,8 +91,8 @@ class TestCYSTParser:
         pass
 
     async def test_parse_networks(self, mocker, perimeter_router, internal_router):
-        network_names = ["blue_test", "purple_test"]
-        mocker.patch(f"{self.path}.randomname.get_name", side_effect=network_names)
+        network_names = ["test1", "test2"]
+        mocker.patch(f"{self.path}.randomname.generate", side_effect=network_names)
         cyst_routers = [
             perimeter_router,
             internal_router,
@@ -99,12 +100,12 @@ class TestCYSTParser:
 
         await self.parser._parse_networks(cyst_routers)
 
-        assert self.parser._networks[0].type == constants.NETWORK_TYPE_PUBLIC
-        assert self.parser._networks[1].type == constants.NETWORK_TYPE_INTERNAL
+        assert self.parser.networks[0].type == constants.NETWORK_TYPE_PUBLIC
+        assert self.parser.networks[1].type == constants.NETWORK_TYPE_INTERNAL
         for i in range(len(cyst_routers)):
-            assert self.parser._networks[i].ip_address == cyst_routers[i].interfaces[0].net
-            assert self.parser._networks[i].gateway == cyst_routers[i].interfaces[0].ip
-            assert self.parser._networks[i].name == network_names[i]
+            assert self.parser.networks[i].ip_address == cyst_routers[i].interfaces[0].net
+            assert self.parser.networks[i].gateway == cyst_routers[i].interfaces[0].ip
+            assert self.parser.networks[i].name == network_names[i]
 
     async def test_parse_nodes(self, mocker: MockerFixture):
         mocker.patch(f"{self.path}.CYSTParser._parse_services", side_effect=AsyncMock(return_value=[]))
@@ -123,12 +124,12 @@ class TestCYSTParser:
         await self.parser._parse_nodes(cyst_nodes)
 
         for i in range(len(cyst_nodes)):
-            assert self.parser._nodes[i].interfaces[0].network == mock_interface.return_value.network
-            assert self.parser._nodes[i].interfaces[0].ip_address == mock_interface.return_value.ip_address
-            assert self.parser._nodes[i].name == cyst_nodes[i].id
-            assert self.parser._nodes[i].services == []
+            assert self.parser.nodes[i].interfaces[0].network == mock_interface.return_value.network
+            assert self.parser.nodes[i].interfaces[0].ip_address == mock_interface.return_value.ip_address
+            assert self.parser.nodes[i].name == cyst_nodes[i].id
+            assert self.parser.nodes[i].services == []
 
-        assert isinstance(self.parser._nodes[0], Node)
+        assert isinstance(self.parser.nodes[0], Node)
         find_network_mock.assert_awaited_with(IPNetwork("127.0.0.0/24"))
 
     async def test_parse_services(self, mocker: MockerFixture):
@@ -158,9 +159,9 @@ class TestCYSTParser:
 
         await self.parser._parse_routers(cyst_routers)
 
-        assert self.parser._routers[0].type == router_type
-        assert self.parser._routers[0].interfaces[0] == interface.return_value
-        assert self.parser._routers[0].firewall_rules[0] == fw_rule.return_value
+        assert self.parser.routers[0].type == router_type
+        assert self.parser.routers[0].interfaces[0] == interface.return_value
+        assert self.parser.routers[0].firewall_rules[0] == fw_rule.return_value
         calls = [
             call(router.interfaces[0].net),
             call(router.traffic_processors[0].chains[0].rules[0].dst_net),
@@ -176,7 +177,7 @@ class TestCYSTParser:
         routers = [internal_router, perimeter_router]
         nodes = [node]
 
-        self.parser._infrastructure = routers + nodes
+        self.parser.infrastructure = routers + nodes
         await self.parser.parse()
 
         parse_networks_mock.assert_awaited_once_with(routers)

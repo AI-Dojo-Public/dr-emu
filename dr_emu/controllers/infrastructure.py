@@ -250,8 +250,8 @@ class InfrastructureController:
                 container_names.add(container.name)
         for network in self.infrastructure.networks:
             if network.name in network_names:
-                while (new_name := randomname.generate(self.infrastructure.name, "nouns/astronomy")) in network_names:
-                    continue
+                if (new_name := f"{self.infrastructure.name}-{network.name}") in network_names:
+                    new_name += "-dr-emu"
                 network.name = new_name
                 network_names.add(new_name)
             else:
@@ -321,7 +321,7 @@ class InfrastructureController:
             logger.debug(
                 f"Deleting instance due to {type(error).__name__}",
                 infrastructure_name=self.infrastructure.name,
-                exception=error,
+                exception=str(error),
             )
             # TODO: Is there an exception where the containers(docker_ids) are created?
             try:
@@ -405,8 +405,8 @@ class InfrastructureController:
         docker_container_names = await util.get_container_names(client)
         docker_network_names = await util.get_network_names(client)
 
-        # template = await template_controller.get_template(run.template_id, db_session)
-        parser = CYSTParser(all_config_items)  # TODO:  # parser = CYSTParser(template.description)
+        template = await template_controller.get_template(run.template_id, db_session)
+        parser = CYSTParser(template.description)
         await parser.parse()
 
         available_networks = await util.get_available_networks(client, parser.networks_ips, number_of_infrastructures)
