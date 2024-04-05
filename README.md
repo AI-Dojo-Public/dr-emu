@@ -100,3 +100,27 @@ Path to agent: agent-dummy/
 Agent with name: testagent and id: 1 has been created and installed
 
 ```
+
+## E2E Tests
+Tests are using statically configured ipaddresses from `docker-testbed/tests/e2e/test_infrastructure.py`, so make sure 
+that the ip addresses are available on the system or correctly change them in the infrastructure file.
+
+Testing script will take care of the infrastructure deployment, checking the correctness of the deployment and 
+automatic clean up of the infrastructure.
+
+### Run e2e test
+Tests are using ai-agent from [this](https://gitlab.ics.muni.cz/ai-dojo/agent-dummy) repository for now, 
+so you'll need an access token.
+
+
+Make sure you are in a project folder and the run following commands:
+
+#### Windows
+```shell
+python .\tests\e2e\deployment_checker.py <agent_access_token>
+```
+
+#### Linux
+```bash
+python3.11 tests/e2e/deployment_checker.py <agent_access_token>
+```
