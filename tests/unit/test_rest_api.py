@@ -152,7 +152,9 @@ class TestRun:
     @pytest.fixture()
     def instance(self):
         run_mock = Mock(spec=Instance)
-        run_mock.configure_mock(infrastructure=Mock(id=1),)
+        run_mock.configure_mock(
+            infrastructure=Mock(id=1),
+        )
         return run_mock
 
     @pytest.fixture()
@@ -207,15 +209,17 @@ class TestRun:
 
     async def test_start_run(self, test_app, run, mocker):
         mocker.patch(f"{self.run_controller}.start_run")
-        response = test_app.post(endpoints.Run.start.format(run.id))
+        response = test_app.post(
+            endpoints.Run.start.format(run.id), json={"instances": 1, "supernet": "10.0.0.0/8", "subnets_mask": 24}
+        )
 
         assert response.status_code == 200
-        assert response.json() == {"message": f"{1} Run instances created"}
+        assert response.json() == {'message': '1 Run instances started'}
 
     async def test_start_nonexistent_run(self, test_app, run, mocker):
         mocker.patch(f"{self.run_controller}.start_run", side_effect=NoResultFound)
         response = test_app.post(
-            f"/runs/start/{run.id}?instances=1",
+            f"/runs/start/{run.id}", json={"instances": 1, "supernet": "10.0.0.0/8", "subnets_mask": 24}
         )
 
         assert response.status_code == 404

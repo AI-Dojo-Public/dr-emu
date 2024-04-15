@@ -1,4 +1,4 @@
-from docker.errors import ImageNotFound
+from docker.errors import ImageNotFound, APIError
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import NoResultFound
 
@@ -6,7 +6,7 @@ from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import run as run_controller
 from dr_emu.lib.exceptions import NoAgents
-from dr_emu.schemas.run import Run, RunOut, RunInfo
+from dr_emu.schemas.run import Run, RunOut, RunInfo, RunStart
 from shared import constants
 
 router = APIRouter(
@@ -53,26 +53,51 @@ async def create_run(run: Run, session: DBSession):
     status_code=status.HTTP_204_NO_CONTENT,
     responses={204: {"description": "Object successfully deleted"}},
 )
-async def delete_run(run_id: int, session: DBSession, ):
+async def delete_run(
+    run_id: int,
+    session: DBSession,
+):
     try:
         await run_controller.delete_run(run_id, session)
     except NoResultFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
 
 
-# Make a data stream for checks that the run is still building
-@router.post("/start/{run_id}/")
-async def start_run(session: DBSession, run_id: int, instances: int = 1):
-    try:
-        await run_controller.start_run(run_id, instances, session)
-    except NoResultFound:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
-    except (ImageNotFound, RuntimeError) as ex:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
-    except Exception as e:
-        raise e
+run_start_description = """
+Start specified number of Run instances.
 
-    return {"message": f"{instances} Run instances created"}
+## Custom IP range
+Please make sure you have the adequate number of available
+IP addresses for networks regarding the infrastructure and correct `supernet`-`subnets_mask` setup
+
+### IP range settings
+`supernet` must be large enough to accommodate the `number of networks in infrastructure` * `number of instances`
+
+`subnets_mask` must be **subnet mask** large enough to accommodate the network in infrastructure with the maximum 
+number of nodes (IP addresses) per subnet
+"""
+
+
+# Make a data stream for checks that the run is still building
+@router.post(
+    "/start/{run_id}/",
+    description=run_start_description,
+    )
+async def start_run(session: DBSession, run_id: int,  run_start: RunStart):
+    try:
+        await run_controller.start_run(
+            run_id, run_start.instances, run_start.supernet, run_start.subnets_mask, session
+        )
+    except NoResultFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id)
+        )
+    except (ImageNotFound, RuntimeError, APIError) as ex:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
+    except Exception as err:
+        raise err
+
+    return {"message": f"{run_start.instances} Run instances started"}
 
 
 @router.post("/stop/{run_id}/")

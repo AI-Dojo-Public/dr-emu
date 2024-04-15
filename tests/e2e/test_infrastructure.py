@@ -47,7 +47,7 @@ scripted_attacker = NodeConfig(
     passive_services=[
     ],
     traffic_processors=[],
-    interfaces=[InterfaceConfig(IPAddress("192.168.4.11"), IPNetwork("192.168.4.0/24"))],
+    interfaces=[InterfaceConfig(IPAddress("192.168.4.10"), IPNetwork("192.168.4.0/24"))],
     shell="",
     id="attacker_node",
 )

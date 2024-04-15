@@ -95,10 +95,11 @@ class CYSTParser:
                         if cyst_router.id == "perimeter_router"
                         else constants.NETWORK_TYPE_INTERNAL
                     )
+                    subnet = (IPNetwork(f"{interface.net.network}/{interface.net.netmask}"))
                     logger.debug(
-                        "Adding network", name=network_name, type=network_type, net=interface.net, ip=interface.ip
+                        "Adding network", name=network_name, type=network_type, ip=subnet, gateway=interface.ip
                     )
-                    self.networks.append(Network(network_name, network_type, interface.net, interface.ip))
+                    self.networks.append(Network(network_name, network_type, subnet, interface.ip))
 
     async def _parse_nodes(self, cyst_nodes: list[NodeConfig]):
         """

@@ -7,7 +7,9 @@ from dr_emu.controllers.infrastructure import InfrastructureController
 from dr_emu.lib.logger import logger
 from dr_emu.models import Run, Agent, Template, Instance, Infrastructure, Node
 from dr_emu.lib.exceptions import NoAgents
+
 from sqlalchemy.ext.asyncio import AsyncSession
+from docker.errors import ImageNotFound, APIError, NullResource
 
 
 async def create_run(name: str, template_id: int, agent_ids: list[int], db_session: AsyncSession) -> Run:
@@ -98,9 +100,11 @@ async def delete_run(run_id: int, db_session: AsyncSession) -> Run:
     return run
 
 
-async def start_run(run_id: int, number_of_instances: int, db_session: AsyncSession):
+async def start_run(run_id: int, number_of_instances: int, supernet, subnets_mask, db_session: AsyncSession):
     """
     Start number of specified Run instances (infrastructure clones)
+    :param subnets_mask: Mask defining the size of the subnets created from supernet for infrastructure clones
+    :param supernet: The network defining the IP range from which the infrastructure networks will be created
     :param run_id: ID of Run
     :param number_of_instances: number of instances to start
     :param db_session: Async database session
@@ -110,7 +114,10 @@ async def start_run(run_id: int, number_of_instances: int, db_session: AsyncSess
 
     run = (await db_session.execute(select(Run).where(Run.id == run_id))).scalar_one()
 
-    await InfrastructureController.build_infras(number_of_instances, run, db_session)
+    run_instances = await InfrastructureController.build_infras(number_of_instances, run, supernet, subnets_mask,
+                                                                db_session)
+    db_session.add_all(run_instances)
+    await db_session.commit()
 
 
 async def stop_run(run_id: int, db_session: AsyncSession):
@@ -141,11 +148,10 @@ async def stop_run(run_id: int, db_session: AsyncSession):
         .unique()
         .scalar_one()
     )
-    stop_instance_tasks = set()
 
-    for instance in run.instances:
-        stop_instance_tasks.add(InfrastructureController.stop_infra(instance.infrastructure))
-        await db_session.delete(instance)
+    async with asyncio.TaskGroup() as tg:
+        for instance in run.instances:
+            tg.create_task(InfrastructureController.stop_infra(instance.infrastructure))
+            await db_session.delete(instance)
 
-    await asyncio.gather(*stop_instance_tasks)
     await db_session.commit()
