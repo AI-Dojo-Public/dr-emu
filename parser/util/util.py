@@ -100,6 +100,8 @@ async def get_available_networks(
     docker_client: DockerClient,
     default_networks_ips: set[IPNetwork],
     number_of_infrastructures: int,
+    supernet: IPNetwork,
+    subnet_mask: int
 ) -> list[IPNetwork]:
     """
     Get available networks for new infrastructure, also returns available ips for management networks.
@@ -124,8 +126,7 @@ async def get_available_networks(
     number_of_returned_subnets = (1 + len(default_networks_ips)) * number_of_infrastructures
 
     # TODO: what if I run out of ip address space?
-    supernet = IPNetwork("192.168.0.0/16")  # Rework as a user input in the future
-    subnets = supernet.subnet(24)
+    subnets = supernet.subnet(subnet_mask)
 
     for subnet in subnets:
         if subnet not in [*used_networks, *available_networks]:

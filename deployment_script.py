@@ -55,13 +55,14 @@ def create_run(agent_ids: list[int], template_id: int) -> dict:
 
 
 def start_run(run_id: int, instances: int = 1):
-    print("Starting Run")
-    run_start = requests.post(f"http://127.0.0.1:8000/runs/start/{run_id}?instances={instances}")
+    data = {"instances": instances, "supernet": "10.0.0.0/8", "subnets_mask": 24}
+    run_start = requests.post(f"http://127.0.0.1:8000/runs/start/{run_id}/", data=json.dumps(data))
 
     if run_start.status_code != 200:
         raise RuntimeError(f"message: {run_start.text}, code: {run_start.status_code}")
     else:
         print(f"Run {run_id} started successfully")
+        return run_id
 
 
 def main(config_items=all_config_items, token: str = None):
@@ -74,8 +75,8 @@ def main(config_items=all_config_items, token: str = None):
     config = create_configuration(config_items)
     template_id = create_template(config)["id"]
     run_id = create_run([agent_id], template_id)["id"]
-    start_run(run_id)
-    return run_id
+    start_run(1)
+    return 1
 
 
 if __name__ == "__main__":

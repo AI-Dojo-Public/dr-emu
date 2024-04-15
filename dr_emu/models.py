@@ -178,7 +178,7 @@ class Network(DockerMixin, Base):
                 )
             ).id
         except APIError as err:
-            logger.debug(str(err), ip=self._ipaddress, name=self.name)
+            logger.error(str(err), ip=self._ipaddress, name=self.name)
             raise err
 
         logger.debug("Network created", ip=self._ipaddress, name=self.name)
@@ -440,7 +440,7 @@ class Router(Appliance):
             await self.create()
             await asyncio.to_thread((await self.get()).start)
         except APIError as err:
-            logger.debug(str(err), container_name=self.name)
+            logger.error(str(err), container_name=self.name, interfaces=[str(interface.ipaddress) for interface in self.interfaces])
             raise err
 
         await self.connect_to_networks()
@@ -525,7 +525,7 @@ class Node(Appliance):
         try:
             await asyncio.to_thread((await self.get()).start)
         except APIError as err:
-            logger.debug(str(err), container_name=self.name)
+            logger.error(str(err), container_name=self.name, ipaddress=str(self.interfaces[0].ipaddress))
             raise err
 
         start_service_tasks = await self.start_services()
@@ -654,7 +654,7 @@ class Service(DockerContainerMixin, Base):
         try:
             await asyncio.to_thread((await self.get()).start)
         except APIError as err:
-            logger.debug(str(err), container_name=self.name)
+            logger.error(str(err), container_name=self.name)
             raise err
 
     async def delete(self):

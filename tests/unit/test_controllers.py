@@ -178,6 +178,8 @@ class TestInfrastructureController:
         ]
         db_session = AsyncMock()
         run_mock = AsyncMock()
+        supernet = Mock()
+        subnet_masks = Mock()
         docker_client_mock = mocker.patch(f"{self.file_path}.docker.from_env").return_value
         get_container_names_mock = mocker.patch(f"{self.file_path}.util.get_container_names")
         get_network_names_mock = mocker.patch(f"{self.file_path}.util.get_network_names")
@@ -202,12 +204,12 @@ class TestInfrastructureController:
         mocker.patch.object(scalar_mock, "all", return_value=[])
         mocker.patch(f"{self.file_path}.randomname.generate", side_effect=["first_infra", "second_infra"])
 
-        await self.controller.build_infras(2, run_mock, db_session)
+        await self.controller.build_infras(2, run_mock, supernet, subnet_masks, db_session)
 
         get_container_names_mock.assert_awaited_once_with(docker_client_mock)
         get_network_names_mock.assert_awaited_once_with(docker_client_mock)
         get_available_networks_mock.assert_awaited_once_with(
-            docker_client_mock, cyst_parser_mock.return_value.networks_ips, 2
+            docker_client_mock, cyst_parser_mock.return_value.networks_ips, 2, supernet, subnet_masks
         )
         pull_images_mock.assert_awaited_once_with(docker_client_mock, cyst_parser_mock.return_value.docker_images)
         # get_template_mock.assert_awaited_once_with(run_mock.template_id, db_session)
