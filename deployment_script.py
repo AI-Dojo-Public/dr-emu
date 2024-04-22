@@ -75,8 +75,8 @@ def main(config_items=all_config_items, token: str = None):
     config = create_configuration(config_items)
     template_id = create_template(config)["id"]
     run_id = create_run([agent_id], template_id)["id"]
-    start_run(1)
-    return 1
+    start_run(run_id)
+    return run_id
 
 
 if __name__ == "__main__":
