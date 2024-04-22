@@ -10,7 +10,7 @@ def sec_to_nano(seconds: int) -> int:
     :param seconds: Number of seconds
     :return: Number of nanoseconds
     """
-    return seconds * 10 ** 9
+    return seconds * 10**9
 
 
 @dataclass
@@ -18,6 +18,7 @@ class Healthcheck:
     """
     Container healthcheck.
     """
+
     test: list[str]
     interval: int
     timeout: int
@@ -29,6 +30,7 @@ class ServiceTag:
     """
     Tag used to match a single service and possibly a version.
     """
+
     name: str
     version: str = ""
 
@@ -38,6 +40,7 @@ class Container:
     """
     Container with ServiceTags and necessary information to run a Docker container.
     """
+
     image: str
     services: set[ServiceTag]
     description: str = ""
@@ -54,14 +57,11 @@ class Container:
         return asdict(self._healthcheck) if self._healthcheck else dict()
 
 
+# TODO: unique variables accross infras under a single run
 DEFAULT = Container(
-    "registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/node:latest",
-    {ServiceTag("bash"), ServiceTag("sh")}
+    "registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/node:latest", {ServiceTag("bash"), ServiceTag("sh")}
 )
-ROUTER = Container(
-    "registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/router:latest",
-    {ServiceTag("iptables")}
-)
+ROUTER = Container("registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/router:latest", {ServiceTag("iptables")})
 DATABASE = [
     DEFAULT,
     ROUTER,
@@ -86,7 +86,7 @@ DATABASE = [
             "CRYTON_WORKER_EMPIRE_PASSWORD": "cryton",
             "CRYTON_WORKER_MAX_RETRIES": 20,
         },
-        can_be_combined=True
+        can_be_combined=True,
     ),
     Container(
         "wordpress:6.1.1-apache",
@@ -98,7 +98,7 @@ DATABASE = [
             ],
             sec_to_nano(20),
             sec_to_nano(10),
-            3
+            3,
         ),
         environment={
             "WORDPRESS_DB_HOST": "wordpress_db.demo",
@@ -106,7 +106,7 @@ DATABASE = [
             "WORDPRESS_DB_PASSWORD": "wordpress",
             "WORDPRESS_DB_NAME": "wordpress",
         },
-        requires={ServiceTag("mysql", "8.0.31")}
+        requires={ServiceTag("mysql", "8.0.31")},
     ),
     Container(
         "mysql:8.0.31",
@@ -118,14 +118,14 @@ DATABASE = [
             ],
             interval=sec_to_nano(20),
             timeout=sec_to_nano(10),
-            retries=3
+            retries=3,
         ),
         environment={
             "MYSQL_ROOT_PASSWORD": "wordpress",
             "MYSQL_DATABASE": "wordpress",
             "MYSQL_USER": "wordpress",
             "MYSQL_PASSWORD": "wordpress",
-        }
+        },
     ),
     Container(
         "postgres:10.5",
@@ -138,7 +138,7 @@ DATABASE = [
         volumes=[
             f"{(constants.resources_path/'create_tables.sql').as_posix()}:/docker-entrypoint-initdb.d/create_tables.sql",
             f"{(constants.resources_path/'fill_tables.sql').as_posix()}:/docker-entrypoint-initdb.d/fill_tables.sql",
-        ]
+        ],
     ),
     Container(
         "registry.gitlab.ics.muni.cz:443/cryton/configurations/metasploit-framework:0",
@@ -150,7 +150,7 @@ DATABASE = [
             "MSF_RPC_USERNAME": "cryton",
             "MSF_RPC_PASSWORD": "cryton",
         },
-        can_be_combined=True
+        can_be_combined=True,
     ),
     Container(
         "bcsecurity/empire:v4.10.0",
@@ -159,15 +159,13 @@ DATABASE = [
             "CRYTON_WORKER_EMPIRE_USERNAME": "cryton",
             "CRYTON_WORKER_EMPIRE_PASSWORD": "cryton",
         },
-        can_be_combined=True
+        can_be_combined=True,
     ),
     Container(
         "uexpl0it/vulnerable-packages:backdoored-vsftpd-2.3.4",
         {ServiceTag("vsftpd", "2.3.4")},
-        volumes=[
-            f"{(constants.resources_path/'vsftpd.log').as_posix()}:/var/log/vsftpd.log"
-        ]
-    )
+        volumes=[f"{(constants.resources_path/'vsftpd.log').as_posix()}:/var/log/vsftpd.log"],
+    ),
 ]
 
 # DATABASE = {

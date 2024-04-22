@@ -30,6 +30,7 @@ class InfrastructureController:
     """
     Class for handling actions regarding creating and destroying the infrastructure in docker.
     """
+
     def __init__(self, infrastructure: Optional[Infrastructure] = None):
         self.client = docker.from_env()
         self.infrastructure = infrastructure
@@ -257,24 +258,6 @@ class InfrastructureController:
             else:
                 network_names.add(network.name)
 
-    # async def resolve_dependencies(self):  # TODO: move into parser
-    #     """
-    #     Add startup container dependencies to models
-    #     """
-    #     logger.debug("Resolving container dependencies", infrastructure_name=self.infrastructure.name)
-    #     containers: list[Service] = []
-    #     for node in self.infrastructure.nodes:
-    #         containers += node.services
-    #
-    #     container_dict: dict[str, Service] = {container.name: container for container in containers}
-    #     for container in containers:
-    #         if container.name in constants.TESTBED_INFO.keys():
-    #             if dependencies := constants.TESTBED_INFO[container.name].get(constants.DEPENDS_ON):
-    #                 for key, value in dependencies.items():
-    #                     if dependency := container_dict.get(key):
-    #                         container.dependencies.append(DependsOn(dependency=dependency, state=value))
-    #     logger.debug("Dependencies resolved", infrastructure_name=self.infrastructure.name)
-
     async def create_management_network(self, available_networks):
         used_network_names = await util.get_network_names(docker.from_env())
 
@@ -364,11 +347,11 @@ class InfrastructureController:
 
     @staticmethod
     async def create_controller(
-            available_networks: list[IPNetwork],
-            parser: CYSTParser,
-            docker_container_names: set[str],
-            docker_network_names: set[str],
-            infra_name: str
+        available_networks: list[IPNetwork],
+        parser: CYSTParser,
+        docker_container_names: set[str],
+        docker_network_names: set[str],
+        infra_name: str,
     ):
         networks, routers, nodes = await parser.bake_models()
         infrastructure = Infrastructure(routers=routers, nodes=nodes, networks=networks, name=infra_name)
