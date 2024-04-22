@@ -11,7 +11,7 @@ from parser.lib import containers
 
 @pytest.fixture()
 def network():
-    return Mock(spec=Network, ip_address=IPNetwork("127.0.0.0/24"))
+    return Mock(spec=Network, subnet=IPNetwork("127.0.0.0/24"))
 
 
 @pytest.fixture()
@@ -103,7 +103,7 @@ class TestCYSTParser:
         assert self.parser.networks[0].type == constants.NETWORK_TYPE_PUBLIC
         assert self.parser.networks[1].type == constants.NETWORK_TYPE_INTERNAL
         for i in range(len(cyst_routers)):
-            assert self.parser.networks[i].ip_address == cyst_routers[i].interfaces[0].net
+            assert self.parser.networks[i].subnet == cyst_routers[i].interfaces[0].net
             assert self.parser.networks[i].gateway == cyst_routers[i].interfaces[0].ip
             assert self.parser.networks[i].name == network_names[i]
 
@@ -125,7 +125,7 @@ class TestCYSTParser:
 
         for i in range(len(cyst_nodes)):
             assert self.parser.nodes[i].interfaces[0].network == mock_interface.return_value.network
-            assert self.parser.nodes[i].interfaces[0].ip_address == mock_interface.return_value.ip_address
+            assert self.parser.nodes[i].interfaces[0].ip == mock_interface.return_value.ip
             assert self.parser.nodes[i].name == cyst_nodes[i].id
             assert self.parser.nodes[i].services == []
 

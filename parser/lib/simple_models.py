@@ -1,5 +1,5 @@
 from netaddr import IPNetwork, IPAddress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from parser.lib.containers import Container
 
@@ -9,9 +9,10 @@ class Network:
     """
     Serializable alternative for DB model.
     """
+
     name: str
     type: str
-    ip_address: IPNetwork
+    subnet: IPNetwork
     gateway: IPAddress
 
 
@@ -20,7 +21,8 @@ class Interface:
     """
     Serializable alternative for DB model.
     """
-    ip_address: IPAddress
+
+    ip: IPAddress
     network: Network
 
 
@@ -29,6 +31,7 @@ class FirewallRule:
     """
     Serializable alternative for DB model.
     """
+
     source: Network
     destination: Network
     service: str
@@ -40,6 +43,7 @@ class Router:
     """
     Serializable alternative for DB model.
     """
+
     name: str
     type: str
     interfaces: list[Interface]
@@ -52,8 +56,10 @@ class Service:
     """
     Serializable alternative for DB model.
     """
+
     name: str
     container: Container
+    depends_on: list["Service"] = field(default_factory=list)
 
 
 @dataclass
@@ -61,6 +67,7 @@ class Node:
     """
     Serializable alternative for DB model.
     """
+
     name: str
     interfaces: list[Interface]
     container: Container

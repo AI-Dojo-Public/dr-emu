@@ -7,8 +7,6 @@ from cyst.api.configuration import (
     NodeConfig,
     ActiveServiceConfig,
     PassiveServiceConfig,
-    ExploitConfig,
-    ConnectionConfig,
 )
 from cyst.api.configuration.configuration import ConfigItem
 from cyst.api.environment.environment import Environment
@@ -23,12 +21,12 @@ from dr_emu.models import (
     Router as DockerRouter,
     Service as DockerService,
     Node as DockerNode,
+    DependsOn as DockerDependsOn,
 )
 from parser.lib import containers
 
 
 class CYSTParser:
-    # TODO: once the CYST Core gets fixed, replace with this
     def __init__(self, infrastructure_description: str):
         self.infrastructure = self._load_infrastructure_description(infrastructure_description)
         self.networks: list[Network] = list()
@@ -42,12 +40,12 @@ class CYSTParser:
         :param description: CYST infrastructure description
         :return: CYST configuration
         """
-        # SECURITY VULNERABILITY, EXECUTES PYTHON CODE FROM USER INPOUT
+        # SECURITY VULNERABILITY, EXECUTES PYTHON CODE FROM USER INPUT
         return Environment.create().configuration.general.load_configuration(description)
 
     @property
     def networks_ips(self) -> set[IPNetwork]:
-        return {network.ip_address for network in self.networks}
+        return {network.subnet for network in self.networks}
 
     @property
     def docker_images(self) -> set[str]:
@@ -69,7 +67,7 @@ class CYSTParser:
         :return: Network object
         """
         for network in self.networks:
-            if network.ip_address == subnet:
+            if network.subnet == subnet:
                 return network
 
         raise RuntimeError(f"No network matching {subnet}.")
@@ -83,10 +81,8 @@ class CYSTParser:
         generated_names = set()
         for cyst_router in cyst_routers:
             for interface in cyst_router.interfaces:
-                if not any(interface.net == network.ip_address for network in self.networks):
-                    while (
-                        network_name := randomname.generate("nouns/astronomy")
-                    ) in generated_names:
+                if not any(interface.net == network.subnet for network in self.networks):
+                    while (network_name := randomname.generate("nouns/astronomy")) in generated_names:
                         continue
 
                     generated_names.add(network_name)
@@ -122,7 +118,7 @@ class CYSTParser:
         :param node_services: node objects from cyst infrastructure
         :return:
         """
-        match_rules = set()
+        match_rules: set[containers.ServiceTag] = set()
         for node_service in node_services:
             match node_service:
                 case ActiveServiceConfig():
@@ -140,12 +136,14 @@ class CYSTParser:
         """
         for cyst_router in cyst_routers:
             router_type = "perimeter" if cyst_router.id == "perimeter_router" else "internal"
-            interfaces = list()
-            firewall_rules = list()
+            interfaces: list[Interface] = list()
+            firewall_rules: list[FirewallRule] = list()
 
             for interface in cyst_router.interfaces:
                 network = await self._find_network(interface.net)
-                interfaces.append(Interface(network.gateway, network))
+                # TODO: remove later; Router is now also Switch in CYST Core
+                if not any(network.gateway == i.ip for i in interfaces):
+                    interfaces.append(Interface(network.gateway, network))
 
             # TODO: Better FirewallRule extraction if there will be different cyst configuration
             for firewall_rule in cyst_router.traffic_processors[0].chains[0].rules:
@@ -158,6 +156,17 @@ class CYSTParser:
             logger.debug("Adding router", id=cyst_router.id, type=router_type)
             self.routers.append(Router(cyst_router.id, router_type, interfaces, containers.ROUTER, firewall_rules))
 
+    async def _resolve_dependencies(self):
+        all_services = [service for node in self.nodes for service in node.services]
+        for service in all_services:
+            if service_requirements := service.container.requires:
+                for possible_service in all_services:
+                    if met_requirements := possible_service.container.services.intersection(service_requirements):
+                        service.depends_on.append(possible_service)
+                        service_requirements.difference_update(met_requirements)
+                        if not service_requirements:
+                            break
+
     async def bake_models(self) -> tuple[list[DockerNetwork], list[DockerRouter], list[DockerNode]]:
         """
         Create linked database models for the parsed infrastructure.
@@ -167,25 +176,25 @@ class CYSTParser:
         routers: dict[str, DockerRouter] = dict()
         nodes: dict[str, DockerNode] = dict()
 
+        # Build DB of Docker networks
         for network in self.networks:
             networks[network.name] = DockerNetwork(
-                ipaddress=network.ip_address,
+                ipaddress=network.subnet,
                 router_gateway=network.gateway,
                 name=network.name,
                 network_type=network.type,
             )
 
+        # Build DB of Docker containers (routers)
         for router in self.routers:
             interfaces: list[DockerInterface] = list()
             firewall_rules: list[DockerFirewallRule] = list()
-            router_interface_ips = set()
             for interface in router.interfaces:
-                if interface.ip_address not in router_interface_ips:
-                    interfaces.append(
-                        DockerInterface(ipaddress=interface.ip_address, original_ip=interface.ip_address,
-                                        network=networks[interface.network.name])
+                interfaces.append(
+                    DockerInterface(
+                        ipaddress=interface.ip, original_ip=interface.ip, network=networks[interface.network.name]
                     )
-                    router_interface_ips.add(interface.ip_address)
+                )
             for firewall_rule in router.firewall_rules:
                 firewall_rules.append(
                     DockerFirewallRule(
@@ -204,6 +213,8 @@ class CYSTParser:
                 firewall_rules=firewall_rules,
             )
 
+        # Build DB of Docker containers (nodes and services)
+        all_docker_services: list[DockerService] = list()
         for node in self.nodes:
             services: list[DockerService] = list()
             interfaces: list[DockerInterface] = list()
@@ -217,10 +228,12 @@ class CYSTParser:
                         healthcheck=service.container.healthcheck,
                     )
                 )
+            all_docker_services += services
             for interface in node.interfaces:
                 interfaces.append(
-                    DockerInterface(ipaddress=interface.ip_address, original_ip=interface.ip_address,
-                                    network=networks[interface.network.name])
+                    DockerInterface(
+                        ipaddress=interface.ip, original_ip=interface.ip, network=networks[interface.network.name]
+                    )
                 )
 
             nodes[node.name] = DockerNode(
@@ -232,6 +245,19 @@ class CYSTParser:
                 command=node.container.command,
                 healthcheck=node.container.healthcheck,
             )
+
+        # Update DB with Docker containers' dependencies
+        all_services = [service for node in self.nodes for service in node.services]
+        for service in all_services:
+            if not service.depends_on:
+                continue
+
+            docker_service = next(ds for ds in all_docker_services if ds.name == service.name)
+            for dependency in service.depends_on:
+                docker_dependency = next(dd for dd in all_docker_services if dd.name == dependency.name)
+                docker_service.dependencies.append(
+                    DockerDependsOn(dependency=docker_dependency, state=constants.SERVICE_STARTED)
+                )
 
         return list(networks.values()), list(routers.values()), list(nodes.values())
 
@@ -256,4 +282,5 @@ class CYSTParser:
         await self._parse_networks(cyst_routers)
         await self._parse_routers(cyst_routers)
         await self._parse_nodes(cyst_nodes)
+        await self._resolve_dependencies()
         logger.info("Completed parsing cyst infrastructure description")

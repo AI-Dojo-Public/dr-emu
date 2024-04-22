@@ -5,7 +5,7 @@ import httpx
 from dr_emu.lib.logger import logger
 
 from test_infrastructure import all_config_items, wordpress_srv, developer, wifi_client
-from shared.endpoints import Infrastructure, Run, Template, Agent
+from shared.endpoints import Run, Template, Agent
 from parser.cyst_parser import CYSTParser
 from rich import print
 import asyncio
@@ -15,11 +15,11 @@ import deployment_script
 async def get_infra_info(parser: CYSTParser):
     networks = {}
     for network in parser.networks:
-        networks[str(network.ip_address)] = {}
+        networks[str(network.subnet)] = {}
 
     for appliance in [*parser.routers, *parser.nodes]:
         for interface in appliance.interfaces:
-            networks[str(interface.network.ip_address)][appliance.name] = str(interface.ip_address)
+            networks[str(interface.network.subnet)][appliance.name] = str(interface.ip)
 
     return networks
 
