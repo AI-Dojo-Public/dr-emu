@@ -14,9 +14,22 @@ router = APIRouter(
 )
 
 
+template_create_description = """
+Create infrastructure template
+
+## Subnet mask restriction
+Individual networks in infrastructure configuration have to have their subnet mask greater than 16 so that total number 
+of networks in infrastructure can be fitted in **10.x.0.0/16** subnet.
+
+eg. Infrastructure configuration can have maximum of 256 networks with subnet mask of 24 
+**(10.0.0.0/24 - 10.0.255.0/24)**
+"""
+
+
 @router.post(
     "/create/",
     status_code=status.HTTP_201_CREATED,
+    description=template_create_description,
     responses={201: {"description": "Object successfully created"}},
     response_model=TemplateOut,
 )

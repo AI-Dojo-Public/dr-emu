@@ -219,11 +219,10 @@ class InfrastructureController:
         for network, available_network in zip(self.infrastructure.networks, available_networks):
             network.ipaddress = available_network
 
-            # first address is used for management network in parent function
-            for interface, available_ip in zip(network.interfaces, available_network[1:]):
-                interface.ipaddress = available_ip
+            for interface, new_ip in zip(network.interfaces, available_network.iter_hosts()):
+                interface.ipaddress = new_ip
                 if interface.appliance.type == "router" and "management" not in network.name:
-                    network.router_gateway = available_ip
+                    network.router_gateway = new_ip
 
     async def change_names(self, container_names: set[str], network_names: set[str]):
         """
@@ -258,20 +257,20 @@ class InfrastructureController:
             else:
                 network_names.add(network.name)
 
-    async def create_management_network(self, available_networks):
+    async def create_management_network(self, management_subnet):
         used_network_names = await util.get_network_names(docker.from_env())
 
         while (management_name := randomname.generate("adj/colors", "management")) in used_network_names:
             continue
 
         management_network = Network(
-            ipaddress=available_networks[-1],
-            router_gateway=available_networks[-1][1],
+            ipaddress=management_subnet,
+            router_gateway=management_subnet[1],
             name=management_name,
             network_type=constants.NETWORK_TYPE_MANAGEMENT,
         )
 
-        for router, ip_address in zip(self.infrastructure.routers, management_network.ipaddress[2:]):
+        for router, ip_address in zip(self.infrastructure.routers, management_subnet[2:-2]):
             if router.router_type == constants.ROUTER_TYPE_PERIMETER:
                 router.interfaces.append(
                     Interface(
@@ -296,7 +295,7 @@ class InfrastructureController:
             return run_instance
         except (ImageNotFound, APIError, RuntimeError, Exception) as error:
             logger.error(
-                f"Deleting instance due to {type(error).__name__}",
+                f"Deleting infrastructure due to {type(error).__name__}",
                 infrastructure_name=self.infrastructure.name,
                 exception=str(error),
             )
@@ -327,21 +326,21 @@ class InfrastructureController:
 
         controller = InfrastructureController(infrastructure)
 
-        await controller.create_management_network(available_networks)
+        management_network = available_networks.pop()
+        await controller.create_management_network(management_network)
 
-        if set(available_networks) != {network.ipaddress for network in controller.infrastructure.networks}:
-            await asyncio.gather(controller.change_ipaddresses(available_networks))
-            logger.debug(
-                "IP addresses changed for new infrastructure",
-                infrastructure_name=infrastructure.name,
-                infrastructure_id=infrastructure.id,
-            )
+        await asyncio.gather(controller.change_ipaddresses(available_networks))
+        logger.debug(
+            "IP addresses changed for new infrastructure",
+            infrastructure_name=infrastructure.name,
+            infrastructure_id=infrastructure.id,
+        )
 
         return controller
 
     @staticmethod
     async def create_controller(
-        available_networks: list[IPNetwork],
+        infrastructure_supernet: IPNetwork,
         parser: CYSTParser,
         docker_container_names: set[str],
         docker_network_names: set[str],
@@ -349,7 +348,9 @@ class InfrastructureController:
     ):
         networks, routers, nodes = await parser.bake_models()
         infrastructure = Infrastructure(routers=routers, nodes=nodes, networks=networks, name=infra_name)
-
+        available_networks = await util.generate_infrastructure_subnets(
+            infrastructure_supernet, list(parser.networks_ips)
+        )
         controller = await InfrastructureController.prepare_controller_for_infra_creation(
             available_networks=available_networks,
             infrastructure=infrastructure,
@@ -367,11 +368,9 @@ class InfrastructureController:
         return controller
 
     @staticmethod
-    async def build_infras(number_of_infrastructures: int, run: Run, supernet, subnets_mask, db_session: AsyncSession):
+    async def build_infras(number_of_infrastructures: int, run: Run, db_session: AsyncSession):
         """
         Builds docker infrastructure
-        :param subnets_mask: Mask defining the size of the subnets created from supernet for infrastructure clones
-        :param supernet: The network defining the IP range from which the infrastructure networks will be created
         :param run: Run object
         :param number_of_infrastructures: Number of infrastructures to build
         :param db_session: Async database session
@@ -388,12 +387,9 @@ class InfrastructureController:
         parser = CYSTParser(template.description)
         await parser.parse()
 
-        available_networks = await util.get_available_networks(
+        available_infra_supernets = await util.get_available_networks_for_infras(
             client,
-            parser.networks_ips,
             number_of_infrastructures,
-            supernet,
-            subnets_mask,
         )
 
         await util.pull_images(client, parser.docker_images)
@@ -408,23 +404,10 @@ class InfrastructureController:
         for i in range(number_of_infrastructures):
             # TODO: Move checking of used ips/names into the parser?
             # get the correct amount of networks for infra from available network list
-            if number_of_infrastructures > 1:
-                slice_start = 0 if i == 0 else (len(parser.networks_ips) + 1) * i
-                slice_end = slice_start + len(parser.networks_ips) + 1
-                infrastructure_networks = available_networks[slice_start:slice_end]
-            else:
-                infrastructure_networks = available_networks
 
-            if len(infrastructure_networks) == 0:
-                logger.error("Not enough Ip addresses available to build all Run instances", instance_number=i)
-                raise RuntimeError("Not enough Ip addresses available")
-
-            logger.debug(
-                "Infrastructure networks", networks=infrastructure_networks, infra_name=infrastructure_names[i]
-            )
             controllers.append(
                 await InfrastructureController.create_controller(
-                    infrastructure_networks,
+                    available_infra_supernets[i],
                     parser,
                     docker_container_names,
                     docker_network_names,
@@ -439,10 +422,15 @@ class InfrastructureController:
         instances = await asyncio.gather(*build_infrastructure_tasks, return_exceptions=True)
         exceptions = []
         if any(isinstance(task, Exception) for task in instances):
-            logger.error("Deleting all instances due to exceptions in attempts to build all infrastructures",)
+            logger.error(
+                "Deleting all instances due to exceptions in attempts to build all infrastructures",
+            )
             for task in instances:
                 if isinstance(task, Instance):
-                    await InfrastructureController.stop_infra(task.infrastructure)
+                    try:
+                        await InfrastructureController.stop_infra(task.infrastructure)
+                    except NullResource:
+                        pass
                 elif isinstance(task, Exception):
                     exceptions.append(task)
             raise ExceptionGroup("Failed to build infrastructures", exceptions)

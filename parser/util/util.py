@@ -10,61 +10,7 @@ from dr_emu.models import Network
 from cyst_infrastructure import RouterConfig, NodeConfig
 
 
-# Unused function for rewriting ip addresses based on user input prefix
-def change_ipadresses(nodes: list[NodeConfig], routers: list[RouterConfig], ip_prefix: str):
-    for appliance in [*routers, *nodes]:
-        for interface in appliance.interfaces:
-            new_ip = rewrite_ipaddress_with_prefix(str(interface.ip), ip_prefix)
-            new_net = rewrite_ipaddress_with_prefix(str(interface.net), ip_prefix)
-            interface.ip = IPAddress(new_ip)
-            interface.net = IPNetwork(new_net)
-
-    return nodes, routers
-
-
-# Unused function for rewriting ip addresses based on user input prefix
-def rewrite_ipaddress_with_prefix(old_ip: str, new_ip_prefix: str):
-    original_ip_octate_list = old_ip.split(".")
-    new_ip_octate_list = new_ip_prefix.split(".")
-
-    for ip_octate, prefix_octate in zip(original_ip_octate_list, new_ip_octate_list):
-        octate_index = new_ip_octate_list.index(prefix_octate)
-        if prefix_octate == "x":
-            new_ip_octate_list[octate_index] = original_ip_octate_list[octate_index]
-        elif len(prefix_octate) > 1:
-            if len(prefix_octate) != len(ip_octate):
-                print(prefix_octate, ip_octate)
-                raise RuntimeError("Format of specified ip prefix doesn't match the format of original ip addresses")
-            for ip_digit, prefix_digit in zip(ip_octate, prefix_octate):
-                if prefix_digit == "x":
-                    digit_index = prefix_octate.index(prefix_digit)
-                    prefix_octate = (
-                        prefix_octate[0:digit_index] + ip_octate[digit_index] + prefix_octate[digit_index + 1 :]
-                    )
-                    new_ip_octate_list[octate_index] = prefix_octate
-
-    return ".".join([str(elem) for elem in new_ip_octate_list])
-
-
-# Unused function for rewriting ip addresses based on user input prefix
-async def check_used_ipaddreses(docker_client: DockerClient, parsed_networks: list[Network]):
-    """
-    Check already used network ip spaces.
-    :param docker_client: client for docker rest api
-    :param parsed_networks: Network objects parsed from cyst infrastructure
-    :return:
-    """
-    docker_networks = await asyncio.to_thread(docker_client.networks.list)
-    for docker_network in docker_networks:
-        if docker_network.name in ["none", "host"]:
-            continue
-
-        network_ip = docker_client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"]
-        for parsed_network in parsed_networks:
-            if str(parsed_network.ipaddress) == network_ip:
-                raise Exception(f"Network with ip address {network_ip} already exists")
-
-
+# TODO:  move to dr_emu.lib.util
 async def get_container_names(docker_client: DockerClient) -> set[str]:
     """
     Get already used docker names from running docker containers and networks.
@@ -80,6 +26,7 @@ async def get_container_names(docker_client: DockerClient) -> set[str]:
     return set(docker_container_names)
 
 
+# TODO:  move to dr_emu.lib.util
 async def get_network_names(docker_client: DockerClient) -> set[str]:
     """
     Get already used docker names from running docker containers and networks.
@@ -96,18 +43,15 @@ async def get_network_names(docker_client: DockerClient) -> set[str]:
     return set(docker_network_names)
 
 
-async def get_available_networks(
+# TODO:  move to dr_emu.lib.util
+async def get_available_networks_for_infras(
     docker_client: DockerClient,
-    default_networks_ips: set[IPNetwork],
     number_of_infrastructures: int,
-    supernet: IPNetwork,
-    subnet_mask: int
 ) -> list[IPNetwork]:
     """
-    Get available networks for new infrastructure, also returns available ips for management networks.
+    Return available subnets(supernets) for infrastructures.
     :param number_of_infrastructures:
     :param docker_client: client for docker rest api
-    :param default_networks_ips: Default ip addresses of networks parsed from cyst infrastructure description
     :return: list of available Networks, that can be used during infrastructure building.
     """
     logger.debug("Getting available IP addressed for networks")
@@ -117,25 +61,31 @@ async def get_available_networks(
     for docker_network in docker_networks:
         if docker_network.name in ["none", "host"]:
             continue
-
         used_networks.add(IPNetwork(docker_client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"]))
 
-    if default_networks_ips.difference(used_networks) == default_networks_ips:
-        available_networks += list(default_networks_ips)
-
-    number_of_returned_subnets = (1 + len(default_networks_ips)) * number_of_infrastructures
-
     # TODO: what if I run out of ip address space?
-    subnets = supernet.subnet(subnet_mask)
+    infrastructure_subnets = IPNetwork("10.0.0.0/8").subnet(16)
 
-    for subnet in subnets:
+    for subnet in infrastructure_subnets:
         if subnet not in [*used_networks, *available_networks]:
             available_networks.append(subnet)
-        if len(available_networks) == number_of_returned_subnets:
+        if len(available_networks) == number_of_infrastructures:
             break
 
-    logger.debug("Completed getting available IP addressed for networks", available_subnets=available_networks)
+    logger.debug("Completed getting available IP addressed for infrastructures", available_subnets=available_networks)
     return available_networks
+
+
+# TODO:  move to dr_emu.lib.util
+async def generate_infrastructure_subnets(supernet: IPNetwork, original_networks: list[IPNetwork]) -> list[IPNetwork]:
+    infrastructure_subnets = []
+    for new_subnet in supernet.subnet(original_networks[0].prefixlen):
+        infrastructure_subnets.append(new_subnet)
+        if len(infrastructure_subnets) == len(original_networks) + 1:
+            break
+
+    logger.debug("Completed getting IP addressed for infrastructure", infrastructure_subnets=infrastructure_subnets)
+    return infrastructure_subnets
 
 
 async def pull_images(docker_client, images):
