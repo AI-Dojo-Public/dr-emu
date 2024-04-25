@@ -56,7 +56,7 @@ def create_run(agent_ids: list[int], template_id: int) -> dict:
 
 def start_run(run_id: int, instances: int = 1):
     data = {"instances": instances, "supernet": "10.0.0.0/8", "subnets_mask": 24}
-    run_start = requests.post(f"http://127.0.0.1:8000/runs/start/{run_id}/", data=json.dumps(data))
+    run_start = requests.post(f"http://127.0.0.1:8000/runs/start/{run_id}/?instances={instances}", data=json.dumps(data))
 
     if run_start.status_code != 200:
         raise RuntimeError(f"message: {run_start.text}, code: {run_start.status_code}")

@@ -91,7 +91,7 @@ class TestInfrastructureController:
 
         interface_mock: Mock = mocker.patch(f"{self.file_path}.Interface")
 
-        await self.controller.create_management_network([network_ip])
+        await self.controller.create_management_network(network_ip)
 
         get_network_names_mock.assert_awaited_once()
         network_mock.assert_called_once_with(
@@ -123,7 +123,7 @@ class TestInfrastructureController:
         )
 
         change_ipaddresses_mock.assert_awaited_once_with(available_networks)
-        create_management_network_mock.assert_awaited_once_with(available_networks)
+        create_management_network_mock.assert_awaited_once_with(IPNetwork("127.0.1.0/24"))
         assert infra_controller == infra_controller_mock
 
     async def test_create_controller(self, mocker):
@@ -132,6 +132,9 @@ class TestInfrastructureController:
         routers = Mock()
         nodes = Mock()
         bake_models_mock = mocker.patch.object(cyst_parser_mock, "bake_models", return_value=(networks, routers, nodes))
+        generate_infrastructure_subnets_mock = mocker.patch(
+            f"{self.file_path}.util.generate_infrastructure_subnets"
+        )
 
         infrastructure_mock = mocker.patch(f"{self.file_path}.Infrastructure")
         controller_mock = AsyncMock()
@@ -141,13 +144,13 @@ class TestInfrastructureController:
         )
         change_names_mock = mocker.patch.object(controller_mock, "change_names")
 
-        available_networks = [IPNetwork("127.0.0.0/24")]
+        infrastructure_supernet = IPNetwork("127.0.0.0/16")
         docker_container_names = {"container_name"}
         docker_network_names = {"network_name"}
         infra_name = "test_infra"
 
         controller_result = await InfrastructureController.create_controller(
-            available_networks,
+            infrastructure_supernet,
             cyst_parser_mock,
             docker_container_names,
             docker_network_names,
@@ -161,31 +164,30 @@ class TestInfrastructureController:
             name=infra_name,
         )
         prepare_controller_mock.assert_called_once_with(
-            available_networks=available_networks,
+            available_networks=generate_infrastructure_subnets_mock.return_value,
             infrastructure=infrastructure_mock.return_value,
         )
         change_names_mock.assert_awaited_once_with(
             container_names=docker_container_names, network_names=docker_network_names
         )
+        generate_infrastructure_subnets_mock.assert_awaited_once_with(
+            infrastructure_supernet, list(cyst_parser_mock.network_ips)
+        )
         assert controller_result == controller_mock
 
     async def test_build_infras(self, mocker):
-        available_networks = [
-            IPNetwork("127.0.0.0/24"),
-            IPNetwork("127.0.1.0/24"),
-            IPNetwork("127.0.2.0/24"),
-            IPNetwork("127.0.3.0/24"),
+        available_infra_supernets = [
+            IPNetwork("127.1.0.0/16"),
+            IPNetwork("127.2.1.0/16"),
         ]
         db_session = AsyncMock()
         run_mock = AsyncMock()
-        supernet = Mock()
-        subnet_masks = Mock()
         docker_client_mock = mocker.patch(f"{self.file_path}.docker.from_env").return_value
         get_container_names_mock = mocker.patch(f"{self.file_path}.util.get_container_names")
         get_network_names_mock = mocker.patch(f"{self.file_path}.util.get_network_names")
-        get_available_networks_mock = mocker.patch(
-            f"{self.file_path}.util.get_available_networks",
-            return_value=available_networks,
+        get_available_networks_for_infras_mock = mocker.patch(
+            f"{self.file_path}.util.get_available_networks_for_infras",
+            return_value=available_infra_supernets,
         )
         pull_images_mock = mocker.patch(f"{self.file_path}.util.pull_images")
 
@@ -204,26 +206,26 @@ class TestInfrastructureController:
         mocker.patch.object(scalar_mock, "all", return_value=[])
         mocker.patch(f"{self.file_path}.randomname.generate", side_effect=["first_infra", "second_infra"])
 
-        await self.controller.build_infras(2, run_mock, supernet, subnet_masks, db_session)
+        await self.controller.build_infras(2, run_mock, db_session)
 
         get_container_names_mock.assert_awaited_once_with(docker_client_mock)
         get_network_names_mock.assert_awaited_once_with(docker_client_mock)
-        get_available_networks_mock.assert_awaited_once_with(
-            docker_client_mock, cyst_parser_mock.return_value.networks_ips, 2, supernet, subnet_masks
+        get_available_networks_for_infras_mock.assert_awaited_once_with(
+            docker_client_mock, 2
         )
         pull_images_mock.assert_awaited_once_with(docker_client_mock, cyst_parser_mock.return_value.docker_images)
         # get_template_mock.assert_awaited_once_with(run_mock.template_id, db_session)
 
         calls = [
             call(
-                available_networks[0:2],
+                available_infra_supernets[0],
                 cyst_parser_mock.return_value,
                 get_container_names_mock.return_value,
                 get_network_names_mock.return_value,
                 "first_infra",
             ),
             call(
-                available_networks[2:],
+                available_infra_supernets[1],
                 cyst_parser_mock.return_value,
                 get_container_names_mock.return_value,
                 get_network_names_mock.return_value,

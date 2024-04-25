@@ -6,7 +6,7 @@ from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import run as run_controller
 from dr_emu.lib.exceptions import NoAgents
-from dr_emu.schemas.run import Run, RunOut, RunInfo, RunStart
+from dr_emu.schemas.run import Run, RunOut, RunInfo
 from shared import constants
 
 router = APIRouter(
@@ -63,30 +63,26 @@ async def delete_run(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
 
 
+# Make a data stream for checks that the run is still building
+
+
 run_start_description = """
 Start specified number of Run instances.
 
-## Custom IP range
-Please make sure you have the adequate number of available
-IP addresses for networks regarding the infrastructure and correct `supernet`-`subnets_mask` setup
-
-### IP range settings
-`supernet` must be large enough to accommodate the `number of networks in infrastructure` * `number of instances`
-
-`subnets_mask` must be **subnet mask** large enough to accommodate the network in infrastructure with the maximum 
-number of nodes (IP addresses) per subnet
+## Instance limit
+The maximum number of instances possible is 256 dues to IP address space given that the whole 
+private ip range of the **10.0.0.0/8** is available.
 """
 
 
-# Make a data stream for checks that the run is still building
 @router.post(
     "/start/{run_id}/",
     description=run_start_description,
     )
-async def start_run(session: DBSession, run_id: int,  run_start: RunStart):
+async def start_run(session: DBSession, run_id: int, instances: int = 1):
     try:
         await run_controller.start_run(
-            run_id, run_start.instances, run_start.supernet, run_start.subnets_mask, session
+            run_id, instances, session
         )
     except NoResultFound:
         raise HTTPException(
@@ -97,7 +93,7 @@ async def start_run(session: DBSession, run_id: int,  run_start: RunStart):
     except Exception as err:
         raise err
 
-    return {"message": f"{run_start.instances} Run instances started"}
+    return {"message": f"{instances} Run instances started"}
 
 
 @router.post("/stop/{run_id}/")

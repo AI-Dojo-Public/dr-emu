@@ -91,7 +91,7 @@ class CYSTParser:
                         if cyst_router.id == "perimeter_router"
                         else constants.NETWORK_TYPE_INTERNAL
                     )
-                    subnet = (IPNetwork(f"{interface.net.network}/{interface.net.netmask}"))
+                    subnet = (IPNetwork(interface.net.cidr))
                     logger.debug(
                         "Adding network", name=network_name, type=network_type, ip=subnet, gateway=interface.ip
                     )
