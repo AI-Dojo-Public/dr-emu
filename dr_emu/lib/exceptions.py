@@ -11,12 +11,6 @@ class GitError(Error):
     """
 
 
-class NoAgents(Error):
-    """
-    For no agents in db that meets SELECT requirements.
-    """
-
-
 class ContainerNotRunning(Error):
     """
     Requested docker container is not in running state.

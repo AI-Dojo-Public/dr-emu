@@ -2,7 +2,7 @@
 This project serves as a demonstration of semi-realistic network topology generation using a docker for AI-DOJO.
 
 ## Requirements
-- [Python](https://www.python.org/) >= 3.9, < 3.12
+- [Python](https://www.python.org/) >= 3.11
 - [Docker](https://docs.docker.com/engine/install/)
 
 ## Installation
@@ -13,7 +13,8 @@ cd docker-testbed
 git clone git@gitlab.ics.muni.cz:cyst/cyst-core.git
 ```
 
-Deploy dr-emu:
+### Deploy dr-emu:
+
 ```shell
 docker compose up -d
 ```
@@ -41,65 +42,12 @@ docker exec -it aidojo-app /bin/sh
 ```
 dr-emu --help
 ```
+## Start Run prerequisites
+**Be sure to have Management network containing Cryton deployed before starting Run!**
 
-### Agent creation
-Agent can be installed from pypi, git repository or local folder present on CYST docker container. For private 
-repositories, you'll need access token.
+Edit `MANAGEMENT_NETWORK_NAME` environment variable in `docker-testbed/.env` file with the name of the 
+management network containing Cryton.
 
-For agent creation see:
-```
-❯ dr-emu agents create --help
-                                                                                                                                                                                                                                    
- Usage: dr-emu agents create [OPTIONS] NAME [ROLE]:[attacker|defender]                                                                                                                                                              
-                             [SOURCE]:[git|pypi|local]                                                                                                                                                                              
-                                                                                                                                                                                                                                    
- Create Agent.                                                                                                                                                                                                                      
-                                                                                                                                                                                                                                    
-╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ *    name        TEXT                        agent name [default: None] [required]                                                                                                                                               │
-│      role        [ROLE]:[attacker|defender]  Agent role [default: attacker]                                                                                                                                                      │
-│      source      [SOURCE]:[git|pypi|local]   type of source from which should be agent installed.(This will trigger a prompt) [default: git]                                                                                     │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --help          Show this message and exit.                                                                                                                                                                                      │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-
-
-```
-After specifying the `source` argument and confirmation, you will see prompt matching the selected `source`.
-
-#### Agent from git
-**TIP: agent in subdirectory?**
-If your Agent package is in subdirectory of git repository, use this format for GIT URL:
-```
-https://{host}/{owner}/project.git@{version}#subdirectory={subdirectory_name}
-```
-
-#### Agent in local folder
-To install an Agent from local folder, you need a running docker container with CYST (part of **dr-emu** docker compose) and 
-have the package with Agent present in there.
-
-Then upon Agent creation you just specify `source` argument as `local` and give the path to the Agent package in a 
-container when prompted for it.
-
-**example:**
-
-Agent package `agent-dummy` has been git cloned into the root folder of `CYST` docker container.
-```
-02951eff2fd3:/# ls
-agent-dummy  dev          home         media        opt          root         sbin         sys          usr
-bin          etc          lib          mnt          proc         run          srv          tmp          var
-```
-
-Agent creation would look like this:
-```
-❯ dr-emu agents create testagent attacker local
-Package name: aidojo-agent
-Path to agent: agent-dummy/
-
-Agent with name: testagent and id: 1 has been created and installed
-
-```
 
 ## E2E Tests
 Tests are using statically configured ipaddresses from `docker-testbed/tests/e2e/test_infrastructure.py`, so make sure 
@@ -109,18 +57,14 @@ Testing script will take care of the infrastructure deployment, checking the cor
 automatic clean up of the infrastructure.
 
 ### Run e2e test
-Tests are using ai-agent from [this](https://gitlab.ics.muni.cz/ai-dojo/agent-dummy) repository for now, 
-so you'll need an access token.
-
-
 Make sure you are in a project folder and the run following commands:
 
 #### Windows
 ```shell
-python .\tests\e2e\deployment_checker.py <agent_access_token>
+python .\tests\e2e\deployment_checker.py
 ```
 
 #### Linux
 ```bash
-python3.11 tests/e2e/deployment_checker.py <agent_access_token>
+python3.11 tests/e2e/deployment_checker.py
 ```

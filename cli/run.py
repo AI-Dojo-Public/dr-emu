@@ -23,17 +23,13 @@ def create_run(
         int,
         typer.Argument(help="ID of the created infrastructure description"),
     ],
-    agent_ids: Annotated[
-        List[int],
-        typer.Argument(help="IDs of the created agents. eg. 1 2 3"),
-    ],
 ):
     """
     Create Run.
     """
     response = clm.api_post(
         Run.create,
-        data=RunSchema(name=name, template_id=template_id, agent_ids=agent_ids).model_dump_json(),
+        data=RunSchema(name=name, template_id=template_id).model_dump_json(),
     )
     clm.print_non_get_message(response, constants.RUN, 201)
 

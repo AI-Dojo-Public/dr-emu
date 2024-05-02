@@ -20,9 +20,3 @@ SERVICE_STARTED = "service_started"
 
 FIREWALL_ALLOW = "ALLOW"
 FIREWALL_DENY = "DENY"
-
-CRYTON_NETWORK_IP = IPNetwork(
-    yaml.load(open(rf"{compose_path}"), Loader=yaml.FullLoader)["networks"]["cryton"]["ipam"]["config"][0]["subnet"]
-)
-
-CRYTON_NETWORK_NAME = "docker-testbed_cryton"

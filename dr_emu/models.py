@@ -24,6 +24,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy_utils import force_instant_defaults, ScalarListType, JSONType
 
+from dr_emu.settings import settings
 from dr_emu.lib.exceptions import ContainerNotRunning, PackageNotAccessible
 from dr_emu.lib.logger import logger
 from parser.util import constants
@@ -332,6 +333,7 @@ class Infrastructure(Base):
     __tablename__ = "infrastructure"
 
     name: Mapped[str] = mapped_column()
+    _supernet = mapped_column("supernet", String)
     networks: Mapped[list["Network"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
     routers: Mapped[list["Router"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
     nodes: Mapped[list["Node", "Attacker"]] = relationship(
@@ -339,6 +341,14 @@ class Infrastructure(Base):
     )
     instance_id: Mapped[int] = mapped_column(ForeignKey("instance.id"))
     instance: Mapped["Instance"] = relationship(back_populates="infrastructure", single_parent=True)
+    
+    @property
+    def supernet(self):
+        return IPNetwork(self._supernet)
+
+    @supernet.setter
+    def supernet(self, supernet: IPNetwork):
+        self._supernet = str(supernet)
 
 
 class Router(Appliance):
@@ -579,7 +589,8 @@ class Attacker(Node):
         await asyncio.to_thread(container.start)
 
         # connect attacker to cryton network
-        self.client.networks.get(constants.CRYTON_NETWORK_NAME).connect(container)
+        if not settings.ignore_management_network:
+            self.client.networks.get(settings.management_network_name).connect(container)
         start_service_tasks = await self.start_services()
         await asyncio.gather(*start_service_tasks)
 
@@ -721,14 +732,6 @@ class Service(DockerContainerMixin, Base):
         return True
 
 
-agent_association_table = Table(
-    "agent_association_table",
-    Base.metadata,
-    Column("agent_id", ForeignKey("agent.id")),
-    Column("run_id", ForeignKey("run.id")),
-)
-
-
 class ContainerState(enum.Enum):
     service_healthy = constants.SERVICE_HEALTHY
     service_started = constants.SERVICE_STARTED
@@ -747,158 +750,6 @@ class DependsOn(Base):
     state: Mapped[ContainerState] = mapped_column()
 
 
-class AgentInstallationMethod(Base):
-    """Class for different types of agent installation"""
-
-    __tablename__ = "agent_installation_method"
-    agent_id: Mapped[int] = mapped_column(ForeignKey("agent.id"))
-    agent: Mapped["Agent"] = relationship(back_populates="install_method")
-    package_name: Mapped[str] = mapped_column()
-    type: Mapped[str]
-
-    __mapper_args__ = {
-        "polymorphic_on": "type",
-        "polymorphic_identity": "agent_installation_method",
-    }
-
-    @abstractmethod
-    async def get_install_command(self) -> str:
-        """
-        Create installation command to install agent from specified source
-        """
-
-    @abstractmethod
-    async def get_update_command(self):
-        """
-        Create update command to update agent package from specified source
-        """
-
-
-class AgentPypi(AgentInstallationMethod):
-    __mapper_args__ = {
-        "polymorphic_identity": "pypi",
-    }
-
-    async def get_install_command(self) -> str:
-        return f"pip install {self.package_name}"
-
-    async def get_update_command(self) -> str:
-        return f"pip install -U {self.package_name}"
-
-
-class AgentLocal(AgentInstallationMethod):
-    __tablename__ = "agent_local_install"
-    id: Mapped[int] = mapped_column(ForeignKey("agent_installation_method.id"), primary_key=True)
-    path: Mapped[str] = mapped_column()
-
-    __mapper_args__ = {
-        "polymorphic_identity": "local",
-    }
-
-    async def get_install_command(self) -> str:
-        return f"pip install {self.path}"
-
-    async def get_update_command(self) -> str:
-        return f"pip install -U {self.path}"
-
-
-class AgentGit(AgentInstallationMethod):
-    __tablename__ = "agent_git_install"
-    id: Mapped[int] = mapped_column(ForeignKey("agent_installation_method.id"), primary_key=True)
-    access_token: Mapped[str] = mapped_column(default="")  # TODO: secure the token
-    username: Mapped[str] = mapped_column()
-    host: Mapped[str] = mapped_column()
-    owner: Mapped[str] = mapped_column()
-    repo_name: Mapped[str] = mapped_column()
-
-    __mapper_args__ = {
-        "polymorphic_identity": "git",
-    }
-
-    @property
-    def git_url(self) -> str:
-        url = f"https://{self.username}:{self.access_token}@{self.host}/{self.owner}/{self.repo_name}"
-        if "#subdirectory" in self.repo_name:
-            url += "/"
-        else:
-            url += ".git"
-        return url
-
-    # TODO: gitlab with access token redirects by default?
-    # NOT USED
-    async def validate_project_existence(self):
-        """
-        Check that the project url exists and is accessible
-        """
-        url = f"https://{self.username}:{self.access_token}@{self.host}/{self.owner}/{self.repo_name}.git"
-        try:
-            response = requests.get(
-                url,
-                allow_redirects=False,
-            )
-        except requests.exceptions.ConnectionError as ex:
-            raise ex
-
-        if response.status_code != 200:
-            raise PackageNotAccessible(f"Cannot access git url. status_code: {response.status_code}, url: {url}")
-
-    async def get_install_command(self) -> str:
-        return f"python3 -m pip install '{self.package_name} @ git+{self.git_url}'"
-
-    async def get_update_command(self) -> str:
-        return f"python3 -m pip install -U '{self.package_name} @ git+{self.git_url}'"
-
-
-class Agent(Base):
-    __tablename__ = "agent"
-    name: Mapped[str] = mapped_column()
-    role: Mapped[str] = mapped_column()  # Defender or Attacker
-    install_method: Mapped["AgentInstallationMethod"] = relationship(
-        back_populates="agent", cascade="all, delete-orphan"
-    )
-    runs: Mapped[list["Run"]] = relationship(secondary=agent_association_table, back_populates="agents")
-
-    @staticmethod
-    async def _execute_command(command):
-        """
-        Execute agent related command on CYST container.
-        """
-        if (cyst_container := docker.from_env().containers.get("cyst-demo")).status != "running":
-            raise ContainerNotRunning("Docker container with CYST is not running")
-
-        result = await asyncio.to_thread(cyst_container.exec_run, command)
-        if result.exit_code != 0:
-            raise RuntimeError(result.output)
-
-        return result
-
-    async def install(self):
-        """
-        Download the agent from gitlab repository and install it in the cyst container
-        """
-        installation_command = await self.install_method.get_install_command()
-        installation_result = await self._execute_command(installation_command)
-
-        # check installation
-        pip_list_result = await self._execute_command("pip list")
-        if (
-            re.search(
-                self.install_method.package_name,
-                str(pip_list_result.output),
-                re.IGNORECASE,
-            )
-            is None
-        ):
-            raise RuntimeError(f"Agent was not found in installed packages. {installation_result}")
-
-    async def update_package(self):
-        """
-        Update agent package.
-        """
-        update_command = await self.install_method.get_update_command()
-        await self._execute_command(update_command)
-
-
 class Template(Base):
     __tablename__ = "template"
     name: Mapped[str] = mapped_column()
@@ -909,10 +760,6 @@ class Template(Base):
 class Run(Base):
     __tablename__ = "run"
     name: Mapped[str] = mapped_column()
-    agents: Mapped[list["Agent"]] = relationship(
-        secondary=agent_association_table,
-        back_populates="runs",
-    )
     template: Mapped["Template"] = relationship(back_populates="runs")
     template_id: Mapped[int] = mapped_column(ForeignKey("template.id"))
     instances: Mapped[list["Instance"]] = relationship(back_populates="run", cascade="all, delete-orphan")
@@ -922,7 +769,6 @@ class Instance(Base):
     __tablename__ = "instance"
     run_id: Mapped[int] = mapped_column(ForeignKey("run.id"))
     run: Mapped["Run"] = relationship(back_populates="instances")
-    agent_instances: Mapped[str] = mapped_column()
     infrastructure: Mapped["Infrastructure"] = relationship(
         back_populates="instance", uselist=False, cascade="all, delete, delete-orphan"
     )

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock
 from sqlalchemy.exc import NoResultFound
 from fastapi.testclient import TestClient
 
-from dr_emu.models import Agent, AgentGit, AgentLocal, AgentPypi, Run, Template, Infrastructure, Instance
+from dr_emu.models import Run, Template, Infrastructure, Instance
 
 from dr_emu.app import app as app
 from shared import endpoints
@@ -26,126 +26,6 @@ controllers_path = "dr_emu.controllers"
 
 
 @pytest.mark.asyncio
-class TestAgent:
-    agent_controller = f"{controllers_path}.agent"
-
-    @pytest.fixture
-    def git_agent_installation(self, mocker):
-        installation_method_mock = Mock(spec=AgentGit)
-        mocker.patch("dr_emu.api.endpoints.agent.AgentGit", return_value=installation_method_mock)
-        installation_method_mock.configure_mock(
-            **{
-                "access_token": "test_token",
-                "username": "test",
-                "host": "test_git",
-                "owner": "test_owner",
-                "repo_name": "test_repo",
-                "package_name": "test_pkg",
-                "type": "git",
-            }
-        )
-        return installation_method_mock
-
-    @pytest.fixture
-    def pypi_agent_installation(self):
-        installation_method_mock = Mock(spec=AgentPypi)
-        installation_method_mock.configure_mock(**{"type": "pypi", "package_name": "test_pkg"})
-        return installation_method_mock
-
-    @pytest.fixture
-    def local_agent_installation(self):
-        installation_method_mock = Mock(spec=AgentLocal)
-        installation_method_mock.configure_mock(**{"type": "local", "package_name": "test_pkg", "path": "test_path"})
-        return installation_method_mock
-
-    @pytest.fixture()
-    def agent(self):
-        agent_mock = Mock(spec=Agent)
-        agent_mock.configure_mock(id=1, name="test_agent", role="attacker")
-        return agent_mock
-
-    async def test_list_agents(self, agent, test_app, mocker, git_agent_installation):
-        agent.install_method = git_agent_installation
-        mock_list_agents = AsyncMock(return_value=[agent])
-        mocker.patch(f"{self.agent_controller}.list_agents", side_effect=mock_list_agents)
-        response = test_app.get(endpoints.Agent.list)
-        assert response.status_code == 200
-        assert response.json() == [{"id": 1, "name": agent.name, "role": agent.role, "type": "git"}]
-
-    async def test_create_git_agent(self, test_app, agent, git_agent_installation, mocker):
-        agent.install_method = git_agent_installation
-        mocker.patch(f"{self.agent_controller}.create_agent", return_value=agent)
-        response = test_app.post(
-            endpoints.Agent.create_git,
-            json={
-                "access_token": git_agent_installation.access_token,
-                "git_project_url": f"https://{git_agent_installation.username}:{git_agent_installation.access_token}@"
-                f"{git_agent_installation.host}/{git_agent_installation.owner}/"
-                f"{git_agent_installation.repo_name}",
-                "name": agent.name,
-                "package_name": git_agent_installation.package_name,
-                "role": agent.role,
-                "username": git_agent_installation.username,
-            },
-        )
-
-        assert response.status_code == 201
-        assert response.json() == {
-            "id": agent.id,
-            "name": agent.name,
-            "role": agent.role,
-            "type": agent.install_method.type,
-        }
-
-    async def test_create_pypi_agent(self, test_app, agent, pypi_agent_installation, mocker):
-        agent.install_method = pypi_agent_installation
-        mocker.patch(f"{self.agent_controller}.create_agent", return_value=agent)
-        response = test_app.post(
-            endpoints.Agent.create_pypi,
-            json={
-                "name": agent.name,
-                "role": agent.role,
-                "package_name": pypi_agent_installation.package_name,
-            },
-        )
-
-        assert response.status_code == 201
-        assert response.json() == {
-            "id": agent.id,
-            "name": agent.name,
-            "role": agent.role,
-            "type": agent.install_method.type,
-        }
-
-    async def test_create_local_agent(self, test_app, agent, local_agent_installation, mocker):
-        agent.install_method = local_agent_installation
-        mocker.patch(f"{self.agent_controller}.create_agent", return_value=agent)
-        response = test_app.post(
-            endpoints.Agent.create_pypi,
-            json={
-                "name": agent.name,
-                "role": agent.role,
-                "package_name": local_agent_installation.package_name,
-                "path": local_agent_installation.path,
-            },
-        )
-
-        assert response.status_code == 201
-        assert response.json() == {
-            "id": agent.id,
-            "name": agent.name,
-            "role": agent.role,
-            "type": agent.install_method.type,
-        }
-
-    async def test_delete_agent(self, test_app, agent, mocker):
-        mocker.patch(f"{self.agent_controller}.delete_agent")
-        response = test_app.delete(endpoints.Agent.delete.format(1))
-
-        assert response.status_code == 204
-
-
-@pytest.mark.asyncio
 class TestRun:
     run_controller = f"{controllers_path}.run"
 
@@ -160,12 +40,12 @@ class TestRun:
     @pytest.fixture()
     def run(self, instance):
         run_mock = Mock(spec=Run)
-        run_mock.configure_mock(id=1, name="test_run", agents=[Mock(id=2)], template_id=3, instances=[instance])
+        run_mock.configure_mock(id=1, name="test_run", template_id=3, instances=[instance])
         return run_mock
 
     @pytest.fixture()
     def run_schema(self, run):
-        return {"id": run.id, "name": run.name, "agent_ids": [2], "template_id": run.template_id}
+        return {"id": run.id, "name": run.name, "template_id": run.template_id}
 
     async def test_list_runs(self, test_app, run, mocker, run_schema):
         mock_list_runs = AsyncMock(return_value=[run])
@@ -189,7 +69,7 @@ class TestRun:
         mocker.patch(f"{self.run_controller}.create_run", side_effect=AsyncMock(return_value=run))
         response = test_app.post(
             endpoints.Run.create,
-            json={"name": run.name, "template_id": run.template_id, "agent_ids": [agent.id for agent in run.agents]},
+            json={"name": run.name, "template_id": run.template_id},
         )
 
         assert response.status_code == 201

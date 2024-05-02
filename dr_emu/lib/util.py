@@ -6,17 +6,6 @@ from docker.errors import NotFound
 from parser.util import constants
 
 
-class AgentRole(Enum):
-    attacker = "attacker"
-    defender = "defender"
-
-
-class InstallChoice(Enum):
-    git = "git"
-    pypi = "pypi"
-    local = "local"
-
-
 # TODO: Needs testing, also, never used
 async def depends_on(client: DockerClient, dependencies: dict, timeout=15) -> bool:
     async def check_dependency(container, dependency):

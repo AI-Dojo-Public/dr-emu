@@ -1,11 +1,10 @@
-from docker.errors import ImageNotFound, APIError
+from docker.errors import ImageNotFound, APIError, NotFound
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import NoResultFound
 
 from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import run as run_controller
-from dr_emu.lib.exceptions import NoAgents
 from dr_emu.schemas.run import Run, RunOut, RunInfo
 from shared import constants
 
@@ -28,13 +27,8 @@ async def create_run(run: Run, session: DBSession):
     try:
         run_model = await run_controller.create_run(
             name=run.name,
-            agent_ids=run.agent_ids,
             template_id=run.template_id,
             db_session=session,
-        )
-    except NoAgents:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.AGENT, run.agent_ids)
         )
     except NoResultFound:
         raise HTTPException(
@@ -44,7 +38,6 @@ async def create_run(run: Run, session: DBSession):
         id=run_model.id,
         name=run_model.name,
         template_id=run_model.template_id,
-        agent_ids=run.agent_ids,
     )
 
 
@@ -112,13 +105,11 @@ async def list_runs(session: DBSession):
     if runs:
         result = []
         for run in runs:
-            agent_ids = [agent.id for agent in run.agents]
             infrastructure_ids = [instance.infrastructure.id for instance in run.instances]
             run_info = RunInfo(
                 id=run.id,
                 name=run.name,
                 template_id=run.template_id,
-                agent_ids=agent_ids,
                 infrastructure_ids=infrastructure_ids,
             )
             result.append(run_info)
@@ -134,13 +125,11 @@ async def get_run(run_id: int, session: DBSession):
     except NoResultFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id))
 
-    agent_ids = [agent.id for agent in run.agents]
     infrastructure_ids = [instance.infrastructure.id for instance in run.instances]
 
     return RunInfo(
         id=run.id,
         name=run.name,
         template_id=run.template_id,
-        agent_ids=agent_ids,
         infrastructure_ids=infrastructure_ids,
     )
