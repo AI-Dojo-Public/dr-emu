@@ -162,6 +162,7 @@ class TestInfrastructureController:
             nodes=nodes,
             networks=networks,
             name=infra_name,
+            supernet=IPNetwork("127.0.0.0/16")
         )
         prepare_controller_mock.assert_called_once_with(
             available_networks=generate_infrastructure_subnets_mock.return_value,
@@ -182,6 +183,7 @@ class TestInfrastructureController:
         ]
         db_session = AsyncMock()
         run_mock = AsyncMock()
+        mocker.patch(f"{self.file_path}.template_controller.get_template")
         docker_client_mock = mocker.patch(f"{self.file_path}.docker.from_env").return_value
         get_container_names_mock = mocker.patch(f"{self.file_path}.util.get_container_names")
         get_network_names_mock = mocker.patch(f"{self.file_path}.util.get_network_names")
@@ -194,10 +196,7 @@ class TestInfrastructureController:
         controller_mock = AsyncMock()
         create_controller_mock = mocker.patch(f"{self.controller_path}.create_controller", return_value=controller_mock)
 
-        template_mock = AsyncMock()
-        get_template_mock = mocker.patch(
-            f"{self.file_path}.template_controller.get_template", return_value=template_mock
-        )
+
         cyst_parser_mock = mocker.patch(f"{self.file_path}.CYSTParser", return_value=AsyncMock(networks_ips=["test"]))
 
         mocker.patch.object(cyst_parser_mock, "parse")
@@ -211,7 +210,7 @@ class TestInfrastructureController:
         get_container_names_mock.assert_awaited_once_with(docker_client_mock)
         get_network_names_mock.assert_awaited_once_with(docker_client_mock)
         get_available_networks_for_infras_mock.assert_awaited_once_with(
-            docker_client_mock, 2
+            docker_client_mock, 2, set()
         )
         pull_images_mock.assert_awaited_once_with(docker_client_mock, cyst_parser_mock.return_value.docker_images)
         # get_template_mock.assert_awaited_once_with(run_mock.template_id, db_session)
@@ -244,7 +243,7 @@ class TestInfrastructureController:
             await self.controller.build_infrastructure(run_mock)
 
         instance_mock.assert_called_once_with(
-            run=run_mock, agent_instances="placeholder", infrastructure=infrastructure
+            run=run_mock, infrastructure=infrastructure
         )
         start_mock.assert_called_once()
         stop_mock.assert_called_once()

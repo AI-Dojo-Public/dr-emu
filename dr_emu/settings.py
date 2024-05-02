@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     postgres_password: str
     postgres_db: str
     db_host: str
+    management_network_name: str
+    ignore_management_network: bool
     echo_sql: bool = True
     test: bool = False
     project_name: str = "Dr-emu"

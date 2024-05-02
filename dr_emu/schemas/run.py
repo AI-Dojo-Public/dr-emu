@@ -9,7 +9,6 @@ def check_ipnetwork_format(supernet: str):
 class Run(BaseModel):
     name: str
     template_id: int
-    agent_ids: list[int]
 
 
 class RunOut(Run):

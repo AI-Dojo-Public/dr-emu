@@ -1,5 +1,5 @@
 import asyncio
-from ipaddress import IPv4Address
+from typing import Sequence
 
 from docker import DockerClient
 import docker.errors
@@ -47,9 +47,11 @@ async def get_network_names(docker_client: DockerClient) -> set[str]:
 async def get_available_networks_for_infras(
     docker_client: DockerClient,
     number_of_infrastructures: int,
+    used_infra_supernets: set[IPNetwork]
 ) -> list[IPNetwork]:
     """
     Return available subnets(supernets) for infrastructures.
+    :param used_infra_supernets: Subnets that are already used by other infrastructures
     :param number_of_infrastructures:
     :param docker_client: client for docker rest api
     :return: list of available Networks, that can be used during infrastructure building.
@@ -67,7 +69,7 @@ async def get_available_networks_for_infras(
     infrastructure_subnets = IPNetwork("10.0.0.0/8").subnet(16)
 
     for subnet in infrastructure_subnets:
-        if subnet not in [*used_networks, *available_networks]:
+        if subnet not in [*used_networks, *available_networks, *used_infra_supernets]:
             available_networks.append(subnet)
         if len(available_networks) == number_of_infrastructures:
             break

@@ -1,182 +1,37 @@
-version: '3.9'
-services:
-  aidojo_db:
-    restart: always
-    image: postgres:15
-    container_name: aidojo-db
-    env_file:
-      - .env
-    volumes:
-      - ai-dojo-testbed:/var/lib/postgresql/data
-    healthcheck:
-      test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
-      interval: 20s
-      timeout: 10s
-      retries: 5
+  version: '3.9'
+  services:
+    aidojo_db:
+      restart: always
+      image: postgres:15
+      container_name: aidojo-db
+      env_file:
+        - .env
+      volumes:
+        - ai-dojo-testbed:/var/lib/postgresql/data
+      healthcheck:
+        test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+        interval: 20s
+        timeout: 10s
+        retries: 5
 
-  aidojo_app:
-    restart: always
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: aidojo-app
-      args:
-        POETRY_VIRTUALENVS_IN_PROJECT: true
-    container_name: aidojo-app
-    depends_on:
-      aidojo_db:
-        condition: service_healthy
-    ports:
-      - "0.0.0.0:8000:8000"
-    env_file:
-      - .env
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+    aidojo_app:
+      restart: always
+      build:
+        context: .
+        dockerfile: Dockerfile
+        target: aidojo-app
+        args:
+          POETRY_VIRTUALENVS_IN_PROJECT: true
+      container_name: aidojo-app
+      depends_on:
+        aidojo_db:
+          condition: service_healthy
+      ports:
+        - "0.0.0.0:8000:8000"
+      env_file:
+        - .env
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
 
-  cyst_demo:
-    restart: always
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: cyst-demo
-    container_name: cyst-demo
-    stdin_open: true
-    tty: true
-    networks:
-      cryton:
-        ipv4_address: 192.168.250.11
-
-  cryton_core:
-    restart: always
-    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-core
-    container_name: cryton-core
-    env_file:
-      - .env
-    ports:
-      - "8001:80"
-    depends_on:
-      cryton_pgbouncer:
-        condition: service_started
-      cryton_rabbit:
-        condition: service_healthy
-
-    networks:
-      cryton:
-        ipv4_address: 192.168.250.10
-
-  cryton_proxy:
-    restart: always
-    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-core:proxy
-    container_name: cryton-proxy
-    network_mode: service:cryton_core
-    depends_on:
-      cryton_core:
-        condition: service_started
-
-  cryton_db:
-    restart: always
-    image: postgres:15
-    container_name: cryton-db
-    env_file:
-      - .env
-    environment:
-      POSTGRES_PASSWORD: $CRYTON_CORE_DB_PASSWORD
-      POSTGRES_USER: $CRYTON_CORE_DB_USERNAME
-      POSTGRES_DB: $CRYTON_CORE_DB_NAME
-      POSTGRES_HOST_AUTH_METHOD: md5
-    volumes:
-      - cryton_core_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: /usr/bin/pg_isready -U $$POSTGRES_USER
-      interval: 20s
-      timeout: 10s
-      retries: 5
-    networks:
-      cryton:
-        ipv4_address: 192.168.250.13
-
-  cryton_pgbouncer:
-    restart: always
-    image: bitnami/pgbouncer:1.18.0
-    container_name: cryton-pgbouncer
-    depends_on:
-      cryton_db:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      POSTGRESQL_HOST: cryton_db
-      POSTGRESQL_USERNAME: $CRYTON_CORE_DB_USERNAME
-      POSTGRESQL_DATABASE: $CRYTON_CORE_DB_NAME
-      POSTGRESQL_PASSWORD: $CRYTON_CORE_DB_PASSWORD
-      PGBOUNCER_DATABASE: $CRYTON_CORE_DB_NAME
-      PGBOUNCER_PORT: 5432
-      PGBOUNCER_MAX_CLIENT_CONN: 1000
-      PGBOUNCER_MIN_POOL_SIZE: 8
-      PGBOUNCER_POOL_MODE: transaction
-
-    networks:
-      cryton:
-        ipv4_address: 192.168.250.14
-
-  cryton_rabbit:
-    restart: always
-    image: rabbitmq:3.11-management
-    container_name: cryton-rabbit
-    env_file:
-      - .env
-    environment:
-      RABBITMQ_DEFAULT_USER: $CRYTON_CORE_RABBIT_USERNAME
-      RABBITMQ_DEFAULT_PASS: $CRYTON_CORE_RABBIT_PASSWORD
-    ports:
-      - "5672:5672"
-      - "127.0.0.1:15672:15672"
-    healthcheck:
-      test: rabbitmqctl eval '
-        { true, rabbit_app_booted_and_running } = { rabbit:is_booted(node()), rabbit_app_booted_and_running },
-        { [], no_alarms } = { rabbit:alarms(), no_alarms },
-        [] /= rabbit_networking:active_listeners(),
-        rabbitmq_node_is_healthy.
-        ' || exit 1
-      interval: 20s
-      timeout: 10s
-      retries: 5
-
-    networks:
-      cryton:
-        ipv4_address: 192.168.250.15
-
-  cryton_cli:
-    restart: always
-    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-cli:1
-    container_name: cryton-cli
-    network_mode: service:cryton_core
-    env_file:
-      - .env
-    depends_on:
-      cryton_core:
-        condition: service_started
-    volumes:
-      - ./resources/:/opt/resources
-    tty: true
-
-  cryton_frontend:
-    restart: always
-    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-frontend:1
-    ports:
-      - "127.0.0.1:8080:80"
-    networks:
-      cryton:
-        ipv4_address: 192.168.250.12
-
-volumes:
-  ai-dojo-testbed:
-  cryton_core_db_data:
-  postgres_volume:
-
-networks:
-  cryton:
-    ipam:
-      config:
-        - subnet: 192.168.250.0/24
-          gateway: 192.168.250.250
+  volumes:
+    ai-dojo-testbed:

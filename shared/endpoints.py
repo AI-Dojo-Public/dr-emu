@@ -1,12 +1,3 @@
-class Agent:
-    create_git = "/agents/create/git/"
-    create_local = "/agents/create/local/"
-    create_pypi = "/agents/create/pypi/"
-    delete = "/agents/delete/{}/"
-    list = "/agents/"
-    update = "/agents/update/{}/"
-
-
 class Template:
     list = "/templates/"
     create = "/templates/create/"

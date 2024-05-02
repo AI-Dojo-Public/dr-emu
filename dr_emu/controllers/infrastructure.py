@@ -23,7 +23,7 @@ from dr_emu.models import (
 )
 
 from parser.cyst_parser import CYSTParser
-from cyst_infrastructure import all_config_items
+from dr_emu.settings import settings
 
 
 class InfrastructureController:
@@ -286,7 +286,6 @@ class InfrastructureController:
     async def build_infrastructure(self, run) -> Instance:
         run_instance = Instance(
             run=run,
-            agent_instances="placeholder",
             infrastructure=self.infrastructure,
         )
 
@@ -347,7 +346,9 @@ class InfrastructureController:
         infra_name: str,
     ):
         networks, routers, nodes = await parser.bake_models()
-        infrastructure = Infrastructure(routers=routers, nodes=nodes, networks=networks, name=infra_name)
+        infrastructure = Infrastructure(
+            routers=routers, nodes=nodes, networks=networks, name=infra_name, supernet=infrastructure_supernet
+        )
         available_networks = await util.generate_infrastructure_subnets(
             infrastructure_supernet, list(parser.networks_ips)
         )
@@ -380,6 +381,15 @@ class InfrastructureController:
         client = docker.from_env()
         controllers = []
 
+        # check if management (cryton) network exists
+        if not settings.ignore_management_network:
+            try:
+                client.networks.get(settings.management_network_name)
+            except docker.errors.NotFound:
+                raise RuntimeError(
+                    f"Management Network containing Cryton '{settings.management_network_name}' not found"
+                )
+
         docker_container_names = await util.get_container_names(client)
         docker_network_names = await util.get_network_names(client)
 
@@ -387,14 +397,16 @@ class InfrastructureController:
         parser = CYSTParser(template.description)
         await parser.parse()
 
-        available_infra_supernets = await util.get_available_networks_for_infras(
-            client,
-            number_of_infrastructures,
+        existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
+
+        used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
+        available_infrastructure_supernets = await util.get_available_networks_for_infras(
+            client, number_of_infrastructures, used_infrastructure_supernets
         )
 
         await util.pull_images(client, parser.docker_images)
 
-        used_infrastructure_names = (await db_session.scalars(select(Infrastructure.name))).all()
+        used_infrastructure_names = {infra.name for infra in existing_infrastructures}
         infrastructure_names = []
         for i in range(number_of_infrastructures):
             while (infra_name := randomname.generate("adj/colors")) in used_infrastructure_names:
@@ -407,7 +419,7 @@ class InfrastructureController:
 
             controllers.append(
                 await InfrastructureController.create_controller(
-                    available_infra_supernets[i],
+                    available_infrastructure_supernets[i],
                     parser,
                     docker_container_names,
                     docker_network_names,

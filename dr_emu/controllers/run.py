@@ -5,30 +5,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from dr_emu.controllers.infrastructure import InfrastructureController
 from dr_emu.lib.logger import logger
-from dr_emu.models import Run, Agent, Template, Instance, Infrastructure, Node
-from dr_emu.lib.exceptions import NoAgents
+from dr_emu.models import Run, Template, Instance, Infrastructure, Node
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from docker.errors import ImageNotFound, APIError, NullResource
 
 
-async def create_run(name: str, template_id: int, agent_ids: list[int], db_session: AsyncSession) -> Run:
+async def create_run(name: str, template_id: int, db_session: AsyncSession) -> Run:
     """
     Create Run and save it to DB.
     :param name: Run name
     :param template_id: ID of Template that should be used in this Run
-    :param agent_ids: IDs of agents that should be used in this Run
     :param db_session: Async database session
     :return: Run object
     """
-    logger.debug("Creating Run", name=name, template_id=template_id, agent_ids=agent_ids)
+    logger.debug("Creating Run", name=name, template_id=template_id)
 
-    agents = (await db_session.scalars(select(Agent).where(Agent.id.in_(agent_ids)))).all()
-    if not agents:
-        raise NoAgents()
     template = (await db_session.execute(select(Template).where(Template.id == template_id))).scalar_one()
 
-    run = Run(name=name, template=template, agents=agents)
+    run = Run(name=name, template=template)
     db_session.add(run)
     await db_session.commit()
 
@@ -49,7 +43,7 @@ async def list_runs(db_session: AsyncSession) -> Sequence[Run]:
         (
             await db_session.scalars(
                 select(Run).options(
-                    joinedload(Run.agents), joinedload(Run.instances).joinedload(Instance.infrastructure)
+                    joinedload(Run.instances).joinedload(Instance.infrastructure)
                 )
             )
         )
@@ -74,7 +68,7 @@ async def get_run(run_id: int, db_session: AsyncSession) -> Run:
             await db_session.execute(
                 select(Run)
                 .where(Run.id == run_id)
-                .options(joinedload(Run.agents), joinedload(Run.instances).joinedload(Instance.infrastructure))
+                .options(joinedload(Run.instances).joinedload(Instance.infrastructure))
             )
         )
         .unique()
