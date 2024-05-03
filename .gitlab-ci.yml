@@ -9,7 +9,7 @@ variables:
 
 .tests:
   stage: test
-  image: debian:stable-slim
+  image: ubuntu:latest
   coverage: '/TOTAL.*\s+(\d+%)$/'
   rules:
     - changes:
@@ -26,10 +26,13 @@ variables:
     - when: never
   before_script:
     - export $(grep -v '^#' .env | xargs)
-    - apt update
-    - apt install -y build-essential curl python3-dev g++ gcc git
+    - apt-get update
+    - apt-get install -y build-essential curl python3-dev g++ gcc git
+    - apt install -y pipx
+    - pipx ensurepath
+    - pipx install poetry
+    - pipx ensurepath
     - git clone https://oauth2:$CYST_TOKEN@gitlab.ics.muni.cz/cyst/cyst-core.git
-    - curl -sSL https://install.python-poetry.org | python3 -
     - export PATH="/root/.local/bin:$PATH"
     - poetry install
 

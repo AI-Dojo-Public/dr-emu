@@ -10,7 +10,7 @@ FROM base as router
 RUN apk add --no-cache \
     iptables
 
-FROM docker:latest as aidojo-app
+FROM docker:latest as dr_emu
 ARG POETRY_VIRTUALENVS_IN_PROJECT
 ENV POETRY_VIRTUALENVS_IN_PROJECT $POETRY_VIRTUALENVS_IN_PROJECT
 
@@ -36,7 +36,3 @@ RUN ln -s /app/.venv/bin/dr-emu /root/.local/bin/dr-emu
 ENTRYPOINT [ "/app/entrypoint.sh" ]
 CMD ["poetry", "run", "uvicorn", "dr_emu.app:app", "--reload", "--host", "0.0.0.0"]
 
-FROM base as cyst-demo
-RUN apk update
-RUN apk add --no-cache build-base curl python3-dev g++ gcc py3-pip git
-RUN pip install cyst-core wheel

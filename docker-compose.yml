@@ -1,30 +1,32 @@
-  version: '3.9'
-  services:
-    aidojo_db:
-      restart: always
-      image: postgres:15
-      container_name: aidojo-db
-      env_file:
-        - .env
-      volumes:
-        - ai-dojo-testbed:/var/lib/postgresql/data
-      healthcheck:
-        test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
-        interval: 20s
-        timeout: 10s
-        retries: 5
+version: '3.9'
+services:
+  dr_emu_db:
+    restart: always
+    image: postgres:15
+    container_name: dr-emu-db
+    env_file:
+      - .env
+    volumes:
+      - dr-emu-data:/var/lib/postgresql/data
+    healthcheck:
+      test: /usr/bin/pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 20s
+      timeout: 10s
+      retries: 5
+    ports:
+      - "127.0.0.1:5432:5432"
 
-    aidojo_app:
+  dr_emu:
       restart: always
       build:
         context: .
         dockerfile: Dockerfile
-        target: aidojo-app
+        target: dr_emu
         args:
           POETRY_VIRTUALENVS_IN_PROJECT: true
-      container_name: aidojo-app
+      container_name: dr-emu
       depends_on:
-        aidojo_db:
+        dr_emu_db:
           condition: service_healthy
       ports:
         - "0.0.0.0:8000:8000"
@@ -33,5 +35,5 @@
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
 
-  volumes:
-    ai-dojo-testbed:
+volumes:
+  dr-emu-data:
