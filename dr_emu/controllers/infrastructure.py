@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy.orm import joinedload
 
-from parser.util import util, constants
+from shared import constants
+from dr_emu.lib import util
 from dr_emu.controllers import template as template_controller
 from dr_emu.lib.logger import logger
 from dr_emu.models import (

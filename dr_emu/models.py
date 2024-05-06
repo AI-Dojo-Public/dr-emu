@@ -24,10 +24,10 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy_utils import force_instant_defaults, ScalarListType, JSONType
 
+from shared import constants 
 from dr_emu.settings import settings
 from dr_emu.lib.exceptions import ContainerNotRunning, PackageNotAccessible
 from dr_emu.lib.logger import logger
-from parser.util import constants
 
 # TODO: add init methods with defaults to models instead of this?
 force_instant_defaults()
