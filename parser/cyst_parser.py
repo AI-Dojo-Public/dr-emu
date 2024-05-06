@@ -11,8 +11,9 @@ from cyst.api.configuration import (
 from cyst.api.configuration.configuration import ConfigItem
 from cyst.api.environment.environment import Environment
 
+from shared import constants
 from dr_emu.lib.logger import logger
-from parser.util import constants
+
 from parser.lib.simple_models import Network, Interface, FirewallRule, Router, Service, Node
 from dr_emu.models import (
     Network as DockerNetwork,

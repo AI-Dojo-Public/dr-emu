@@ -1,11 +1,12 @@
 import pytest
 from pytest_mock import MockerFixture
 from unittest.mock import AsyncMock, Mock, call
+
+from shared import constants
 from parser.cyst_parser import CYSTParser
 from parser.lib.simple_models import Network, Node, Service
 from cyst.api.configuration import NodeConfig, RouterConfig
 from netaddr import IPAddress, IPNetwork
-from parser.util import constants
 from parser.lib import containers
 
 

@@ -1,9 +1,10 @@
 from unittest.mock import call, Mock, MagicMock
 import pytest
 from unittest.mock import AsyncMock, Mock, call, patch
+
+from shared import constants
 from dr_emu.controllers.infrastructure import InfrastructureController
 from netaddr import IPNetwork, IPAddress
-from parser.util import constants
 
 import asyncio
 

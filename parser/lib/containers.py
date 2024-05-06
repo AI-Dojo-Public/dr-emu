@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
-from parser.util import constants
+from shared import constants
+
 
 
 def sec_to_nano(seconds: int) -> int:
@@ -136,8 +137,8 @@ DATABASE = [
             "POSTGRES_PASSWORD": "dbpassword",
         },
         volumes=[
-            f"{(constants.resources_path/'create_tables.sql').as_posix()}:/docker-entrypoint-initdb.d/create_tables.sql",
-            f"{(constants.resources_path/'fill_tables.sql').as_posix()}:/docker-entrypoint-initdb.d/fill_tables.sql",
+            f"{(constants.resources_path / 'create_tables.sql').as_posix()}:/docker-entrypoint-initdb.d/create_tables.sql",
+            f"{(constants.resources_path / 'fill_tables.sql').as_posix()}:/docker-entrypoint-initdb.d/fill_tables.sql",
         ],
     ),
     Container(
@@ -164,7 +165,7 @@ DATABASE = [
     Container(
         "uexpl0it/vulnerable-packages:backdoored-vsftpd-2.3.4",
         {ServiceTag("vsftpd", "2.3.4")},
-        volumes=[f"{(constants.resources_path/'vsftpd.log').as_posix()}:/var/log/vsftpd.log"],
+        volumes=[f"{(constants.resources_path / 'vsftpd.log').as_posix()}:/var/log/vsftpd.log"],
     ),
 ]
 
