@@ -22,6 +22,7 @@ from dr_emu.models import (
     Router as DockerRouter,
     Service as DockerService,
     Node as DockerNode,
+    Attacker as DockerAttacker,
     DependsOn as DockerDependsOn,
 )
 from parser.lib import containers
@@ -92,7 +93,7 @@ class CYSTParser:
                         if cyst_router.id == "perimeter_router"
                         else constants.NETWORK_TYPE_INTERNAL
                     )
-                    subnet = (IPNetwork(interface.net.cidr))
+                    subnet = IPNetwork(interface.net.cidr)
                     logger.debug(
                         "Adding network", name=network_name, type=network_type, ip=subnet, gateway=interface.ip
                     )
@@ -109,9 +110,10 @@ class CYSTParser:
                 Interface(interface.ip, await self._find_network(interface.net)) for interface in cyst_node.interfaces
             ]
             services = await self._parse_services(cyst_node.active_services + cyst_node.passive_services)
+            is_attacker = len(cyst_node.active_services) > 0
 
             logger.debug("Adding node", id=cyst_node.id, services=[service.container.image for service in services])
-            self.nodes.append(Node(cyst_node.id, interfaces, containers.DEFAULT, services))
+            self.nodes.append(Node(cyst_node.id, interfaces, containers.DEFAULT, services, is_attacker))
 
     async def _parse_services(self, node_services: list[PassiveServiceConfig | ActiveServiceConfig]) -> list[Service]:
         """
@@ -127,7 +129,7 @@ class CYSTParser:
                 case PassiveServiceConfig():
                     match_rules.add(containers.ServiceTag(node_service.type, node_service.version))
 
-        return [Service(str(uuid1()), container) for container in containers.match(match_rules)]
+        return [Service(str(uuid1()), container) for container in containers.match_container(match_rules)]
 
     async def _parse_routers(self, cyst_routers: list[RouterConfig]):
         """
@@ -237,7 +239,8 @@ class CYSTParser:
                     )
                 )
 
-            nodes[node.name] = DockerNode(
+            node_type = DockerAttacker if node.is_attacker else DockerNode
+            nodes[node.name] = node_type(
                 name=node.name,
                 interfaces=interfaces,
                 image=node.container.image,
