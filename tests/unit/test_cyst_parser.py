@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, call
 from shared import constants
 from parser.cyst_parser import CYSTParser
 from parser.lib.simple_models import Network, Node, Service
-from cyst.api.configuration import NodeConfig, RouterConfig
+from cyst.api.configuration import NodeConfig, RouterConfig, PassiveServiceConfig
 from netaddr import IPAddress, IPNetwork
 from parser.lib import containers
 
@@ -134,18 +134,19 @@ class TestCYSTParser:
         find_network_mock.assert_awaited_with(IPNetwork("127.0.0.0/24"))
 
     async def test_parse_services(self, mocker: MockerFixture):
-        mock_uuid1 = mocker.patch(f"{self.path}.uuid1", return_value="uuid")
-        service = Mock(id="service", type="wordpress")
-        node_services = [service]
+        service = Mock(id="service", type="test", version="test", spec=PassiveServiceConfig)
 
-        services = await self.parser._parse_services(node_services)
+        mock_match_container = mocker.patch(f"{self.path}.containers.match_container", return_value=[containers.DEFAULT])
+        mock_uuid1 = mocker.patch(f"{self.path}.uuid1", return_value="uuid")
+
+        services = await self.parser._parse_services([service])
 
         assert services[0].name == mock_uuid1.return_value
         assert services[0].container.image == containers.DEFAULT.image
         assert services[0].container.command == []
         assert services[0].container.healthcheck == {}
-
         assert isinstance(services[0], Service)
+        mock_match_container.assert_called_once_with({containers.ServiceTag(name="test", version="test")})
 
     @pytest.mark.parametrize(
         "router, router_type",
@@ -184,3 +185,45 @@ class TestCYSTParser:
         parse_networks_mock.assert_awaited_once_with(routers)
         parse_routers_mock.assert_awaited_once_with(routers)
         parse_nodes_mock.assert_awaited_once_with(nodes)
+
+
+class TestContainers:
+    def test_match_non_existent(self):
+        match_rules = {containers.ServiceTag("non-existent", "1.2.3")}
+
+        result = containers.match_container(match_rules)
+
+        assert result == [containers.DEFAULT]
+
+    def test_match_exact(self):
+        mock_container_a = containers.Container("", services={containers.ServiceTag("x"), containers.ServiceTag("y")})
+        mock_container_b = containers.Container("", services={containers.ServiceTag("x")})
+        containers.DATABASE = [mock_container_a, mock_container_b]
+        match_rules = {containers.ServiceTag("x")}
+
+        result = containers.match_container(match_rules)
+
+        assert result == [mock_container_b]
+
+    def test_match_closest(self):
+        mock_container_a = containers.Container(
+            "", services={containers.ServiceTag("x"), containers.ServiceTag("y"), containers.ServiceTag("z")}
+        )
+        mock_container_b = containers.Container("", services={containers.ServiceTag("x"), containers.ServiceTag("y")})
+        containers.DATABASE = [mock_container_a, mock_container_b]
+        match_rules = {containers.ServiceTag("x")}
+
+        result = containers.match_container(match_rules)
+
+        assert result == [mock_container_b]
+
+    def test_match_closest_partial(self):
+        mock_container_a = containers.Container("", services={containers.ServiceTag("x")}, can_be_combined=True)
+        mock_container_b = containers.Container("", services={containers.ServiceTag("x")}, can_be_combined=True)
+        mock_container_c = containers.Container("", services={containers.ServiceTag("y")}, can_be_combined=True)
+        containers.DATABASE = [mock_container_a, mock_container_b, mock_container_c]
+        match_rules = {containers.ServiceTag("x"), containers.ServiceTag("y")}
+
+        result = containers.match_container(match_rules)
+
+        assert result == [mock_container_a, mock_container_c]

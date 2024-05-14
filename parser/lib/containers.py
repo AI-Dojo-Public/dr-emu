@@ -4,7 +4,6 @@ from typing import Any
 from shared import constants
 
 
-
 def sec_to_nano(seconds: int) -> int:
     """
     Convert seconds to nanoseconds.
@@ -183,22 +182,40 @@ DATABASE = [
 # }
 
 
-def match(rules: set[ServiceTag]) -> list[Container]:
+def match_container(node_services: set[ServiceTag]) -> list[Container]:
     """
-    Get Containers that match the supplied rules.
-    In case the rules aren't satisfied, return default.
-    :param rules: Set of rules to match against the Containers.
-    :return: Matched Containers
+    Matches a set of node services with a predefined database of containers.
+    If the rules aren't satisfied, it returns the default container.
+    :param node_services: Set node services to match against the database of containers with services.
+    :return: Matched containers
     """
-    possible_matches: list[Container] = list()
-    possible_matches_services: set[ServiceTag] = set()
-    for container in DATABASE:
-        if rules.issubset(container.services):
-            return [container]
-        elif rules.issuperset(container.services) and container.can_be_combined:
-            possible_matches.append(container)
-            possible_matches_services.update(container.services)
-            if rules.issubset(possible_matches_services):
-                return possible_matches
+    closest_match: Container | None = None
+    closest_match_redundant_services: set[ServiceTag] = set()
+    partial_matches: list[Container] = list()
+    partial_matches_services: set[ServiceTag] = set()
 
-    return [DEFAULT]
+    for db_container in DATABASE:
+        # Check if the required services are all available in the container
+        if not node_services.difference(db_container.services):
+            redundant_db_container_services = db_container.services.difference(node_services)
+            if not redundant_db_container_services:  # An exact match
+                return [db_container]
+
+            # If this container has fewer redundant services than the current closest match, update the closest match
+            if closest_match is None or redundant_db_container_services < closest_match_redundant_services:
+                closest_match, closest_match_redundant_services = db_container, redundant_db_container_services
+
+        # Check if at least one of the required services is in the container
+        if (
+            db_container.can_be_combined
+            and node_services.difference(db_container.services) < node_services
+            and db_container.services.difference(partial_matches_services)
+        ):
+            partial_matches.append(db_container)
+            partial_matches_services.update(db_container.services)
+
+    # If the partial matches match the requirements, use them
+    if not node_services.difference(partial_matches_services):
+        return partial_matches
+
+    return [closest_match] if closest_match else [DEFAULT]

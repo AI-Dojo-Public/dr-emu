@@ -72,3 +72,4 @@ class Node:
     interfaces: list[Interface]
     container: Container
     services: list[Service]
+    is_attacker: bool = False
