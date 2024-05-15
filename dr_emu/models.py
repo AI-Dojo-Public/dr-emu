@@ -336,7 +336,7 @@ class Infrastructure(Base):
     _supernet = mapped_column("supernet", String)
     networks: Mapped[list["Network"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
     routers: Mapped[list["Router"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
-    nodes: Mapped[list["Node", "Attacker"]] = relationship(
+    nodes: Mapped[list["Node"]] = relationship(
         back_populates="infrastructure", cascade="all, delete-orphan"
     )
     instance_id: Mapped[int] = mapped_column(ForeignKey("instance.id"))
@@ -625,6 +625,12 @@ class Service(DockerContainerMixin, Base):
         foreign_keys="DependsOn.dependant_service_id",
         cascade="all, delete-orphan",
     )
+    type: Mapped[str]
+
+    __mapper_args__ = {
+        "polymorphic_on": "type",
+        "polymorphic_identity": "service",
+    }
 
     async def get(self) -> Container:
         """
@@ -730,6 +736,13 @@ class Service(DockerContainerMixin, Base):
                 return False
 
         return True
+
+
+class ServiceAttacker(Service):
+    __mapper_args__ = {
+        "polymorphic_on": "type",
+        "polymorphic_identity": "attacker",
+    }
 
 
 class ContainerState(enum.Enum):

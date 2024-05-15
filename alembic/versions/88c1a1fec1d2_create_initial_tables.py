@@ -1,8 +1,8 @@
 """Create initial tables
 
-Revision ID: a34c8e38aae9
+Revision ID: 88c1a1fec1d2
 Revises: 
-Create Date: 2024-04-29 16:30:19.198679
+Create Date: 2024-05-14 14:34:15.856429
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlalchemy_utils
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a34c8e38aae9'
+revision: str = '88c1a1fec1d2'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -116,6 +116,7 @@ def upgrade() -> None:
     )
     op.create_table('service',
     sa.Column('parent_node_id', sa.Integer(), nullable=False),
+    sa.Column('type', sa.String(), nullable=False),
     sa.Column('image', sa.String(), nullable=False),
     sa.Column('environment', sqlalchemy_utils.types.json.JSONType(), nullable=True),
     sa.Column('command', sqlalchemy_utils.types.scalar_list.ScalarListType(), nullable=True),

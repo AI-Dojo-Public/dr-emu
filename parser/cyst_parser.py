@@ -1,6 +1,7 @@
 import randomname
 from netaddr import IPNetwork
 from uuid import uuid1
+import copy
 
 from cyst.api.configuration import (
     RouterConfig,
@@ -21,6 +22,7 @@ from dr_emu.models import (
     FirewallRule as DockerFirewallRule,
     Router as DockerRouter,
     Service as DockerService,
+    ServiceAttacker as DockerServiceAttacker,
     Node as DockerNode,
     Attacker as DockerAttacker,
     DependsOn as DockerDependsOn,
@@ -222,11 +224,12 @@ class CYSTParser:
             services: list[DockerService] = list()
             interfaces: list[DockerInterface] = list()
             for service in node.services:
+                service_type = DockerServiceAttacker if service.container.is_attacker else DockerService
                 services.append(
-                    DockerService(
+                    service_type(
                         name=service.name,
                         image=service.container.image,
-                        environment=service.container.environment,
+                        environment=copy.deepcopy(service.container.environment),
                         command=service.container.command,
                         healthcheck=service.container.healthcheck,
                     )
