@@ -45,13 +45,13 @@ scripted_attacker = NodeConfig(
         )
     ],
     passive_services=[
-        PassiveServiceConfig(
-            type="jtr",
-            owner="jtr",
-            version="1.9.0",
-            local=True,
-            access_level=AccessLevel.LIMITED
-        ),
+        # PassiveServiceConfig(
+        #     type="jtr",
+        #     owner="jtr",
+        #     version="1.9.0",
+        #     local=True,
+        #     access_level=AccessLevel.LIMITED
+        # ),
         # PassiveServiceConfig(
         #     type="empire",
         #     owner="empire",

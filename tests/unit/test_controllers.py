@@ -129,9 +129,9 @@ class TestInfrastructureController:
 
     async def test_create_controller(self, mocker):
         cyst_parser_mock = AsyncMock()
-        networks = Mock()
-        routers = Mock()
-        nodes = Mock()
+        networks = [Mock()]
+        routers = [Mock()]
+        nodes = [Mock()]
         bake_models_mock = mocker.patch.object(cyst_parser_mock, "bake_models", return_value=(networks, routers, nodes))
         generate_infrastructure_subnets_mock = mocker.patch(
             f"{self.file_path}.util.generate_infrastructure_subnets"

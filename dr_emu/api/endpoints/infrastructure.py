@@ -1,6 +1,7 @@
 from fastapi import APIRouter, status, HTTPException
 from sqlalchemy.exc import NoResultFound
 
+from dr_emu.models import Attacker, ServiceAttacker
 from shared import constants
 from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
@@ -61,11 +62,19 @@ async def get_infra(infrastructure_id: int, session: DBSession):
             network_info = NetworkSchema(name=network.name, ip=str(network.ipaddress), appliances=appliances_info)
             networks_info.append(network_info)
 
+        attackers = {}
+        for node in infrastructure.nodes:
+            if type(node) is Attacker:
+                for service in node.services:
+                    if type(service) is ServiceAttacker:
+                        attackers[node.name] = service.environment["CRYTON_WORKER_NAME"]
+
         infra_info = InfrastructureInfo(
             id=infrastructure_id,
             name=infrastructure.name,
             run_id=infrastructure.instance.run_id,
             networks=networks_info,
+            attackers=attackers
         )
 
         return infra_info

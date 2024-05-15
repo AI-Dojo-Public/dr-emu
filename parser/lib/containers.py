@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field, asdict
 from typing import Any
+from dr_emu.lib.logger import logger
 
 from shared import constants
 
@@ -51,6 +52,7 @@ class Container:
     environment: dict[str, Any] = field(default_factory=dict)
     requires: set[ServiceTag] = field(default_factory=set)
     can_be_combined: bool = False
+    is_attacker: bool = False
 
     @property
     def healthcheck(self) -> dict:
@@ -87,6 +89,7 @@ DATABASE = [
             "CRYTON_WORKER_MAX_RETRIES": 20,
         },
         can_be_combined=True,
+        is_attacker=True
     ),
     Container(
         "wordpress:6.1.1-apache",
@@ -218,4 +221,8 @@ def match_container(node_services: set[ServiceTag]) -> list[Container]:
     if not node_services.difference(partial_matches_services):
         return partial_matches
 
-    return [closest_match] if closest_match else [DEFAULT]
+    if closest_match:
+        return [closest_match]
+    else:
+        logger.error("No container with the required services was found in the CONTAINER DATABASE, using default.")
+        return [DEFAULT]

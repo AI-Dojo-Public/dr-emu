@@ -13,8 +13,6 @@ services:
       interval: 20s
       timeout: 10s
       retries: 5
-    ports:
-      - "127.0.0.1:5432:5432"
 
   dr_emu:
       restart: always

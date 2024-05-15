@@ -27,3 +27,4 @@ class NetworkSchema(BaseModel):
 
 class InfrastructureInfo(InfrastructureSchema):
     networks: list[NetworkSchema]
+    attackers: dict

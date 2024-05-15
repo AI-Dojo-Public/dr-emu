@@ -20,7 +20,8 @@ from dr_emu.models import (
     Interface,
     Instance,
     Run,
-    Node,
+    Node, Attacker,
+    Service, ServiceAttacker
 )
 
 from parser.cyst_parser import CYSTParser
@@ -350,6 +351,14 @@ class InfrastructureController:
         infrastructure = Infrastructure(
             routers=routers, nodes=nodes, networks=networks, name=infra_name, supernet=infrastructure_supernet
         )
+
+        # TODO: Kinda hotfix for unique worker names
+        for node in nodes:
+            if type(node) is Attacker:
+                for service in node.services:
+                    if type(service) is ServiceAttacker:
+                        service.environment["CRYTON_WORKER_NAME"] = f"attacker_{infra_name}_{service.name}"
+
         available_networks = await util.generate_infrastructure_subnets(
             infrastructure_supernet, list(parser.networks_ips)
         )
@@ -409,6 +418,8 @@ class InfrastructureController:
 
         used_infrastructure_names = {infra.name for infra in existing_infrastructures}
         infrastructure_names = []
+
+        # TODO: only 75 colors, find alternative
         for i in range(number_of_infrastructures):
             while (infra_name := randomname.generate("adj/colors")) in used_infrastructure_names:
                 continue
