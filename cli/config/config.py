@@ -53,11 +53,11 @@ class CLIManager:
             return str(conn_err)
 
     def api_post(
-        self, endpoint_url: str, object_id: int = None, data: dict = None, files: dict = None, timeout: float = 5.0
+        self, endpoint_url: str, object_id: int = None, parameters: dict = None, data: dict = None, files: dict = None, timeout: float = 5.0
     ):
         try:
             return httpx.post(
-                url=self._build_request_url(endpoint_url, object_id), data=data, files=files, timeout=timeout
+                url=self._build_request_url(endpoint_url, object_id, parameters), data=data, files=files, timeout=timeout
             )
         except httpx.ReadTimeout:
             return "Connection timeout!"
