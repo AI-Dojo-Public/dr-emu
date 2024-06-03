@@ -1,4 +1,5 @@
 import asyncio
+import copy
 from typing import Optional, Sequence
 
 import randomname
@@ -20,8 +21,10 @@ from dr_emu.models import (
     Interface,
     Instance,
     Run,
-    Node, Attacker,
-    Service, ServiceAttacker
+    Node,
+    Attacker,
+    Dns,
+    ServiceAttacker,
 )
 
 from parser.cyst_parser import CYSTParser
@@ -52,6 +55,10 @@ class InfrastructureController:
         :return:
         """
         logger.info("Starting infrastructure", name=self.infrastructure.name)
+
+        create_volumes_tasks = await self.create_volumes()
+        await asyncio.gather(*create_volumes_tasks)
+        logger.debug("Networks created", infrastructure_name=self.infrastructure.name)
 
         create_network_tasks = await self.create_networks()
         await asyncio.gather(*create_network_tasks)
@@ -108,6 +115,14 @@ class InfrastructureController:
         logger.debug("Starting nodes", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(node.start()) for node in self.infrastructure.nodes}
 
+    async def create_volumes(self) -> set[asyncio.Task]:
+        """
+        Creates async tasks for creating nodes.
+        :return: set of tasks to create node containers
+        """
+        logger.debug("Creating volumes", infrastructure_name=self.infrastructure.name)
+        return {asyncio.create_task(volume.create()) for volume in self.infrastructure.volumes}
+
     async def configure_appliances(self) -> set[asyncio.Task]:
         """
         Create async tasks for configuring iptables and ip routes in Nodes and Routers.
@@ -154,6 +169,8 @@ class InfrastructureController:
             name=self.infrastructure.name,
             id=self.infrastructure.id,
         )
+        delete_volumes_tasks = await self.delete_volumes()
+        await asyncio.gather(*delete_volumes_tasks)
 
     async def delete_networks(self, check_id: bool) -> set[asyncio.Task]:
         """
@@ -206,6 +223,17 @@ class InfrastructureController:
                 node_tasks.add(asyncio.create_task(node.delete()))
         return node_tasks
 
+    async def delete_volumes(self):
+        logger.debug(
+            "Deleting volumes",
+            infrastructure_name=self.infrastructure.name,
+            infrastructure_id=self.infrastructure.id,
+        )
+        volume_tasks = set()
+        for volume in self.infrastructure.volumes:
+            volume_tasks.add(asyncio.create_task(volume.delete()))
+        return volume_tasks
+
     async def change_ipaddresses(self, available_networks: list[IPNetwork]):
         """
         Change ip addresses in models.
@@ -226,7 +254,7 @@ class InfrastructureController:
                 if interface.appliance.type == "router" and "management" not in network.name:
                     network.router_gateway = new_ip
 
-    async def change_names(self, container_names: set[str], network_names: set[str]):
+    async def change_names(self, container_names: set[str], network_names: set[str], volumes):
         """
         Change names in models for container name uniqueness.
         :param container_names: already used docker container names
@@ -258,6 +286,9 @@ class InfrastructureController:
                 network_names.add(new_name)
             else:
                 network_names.add(network.name)
+        for volume in volumes:
+            if not volume.local:
+                volume.name = f"{self.infrastructure.name}-{volume.name}"
 
     async def create_management_network(self, management_subnet):
         used_network_names = await util.get_network_names(docker.from_env())
@@ -340,6 +371,25 @@ class InfrastructureController:
         return controller
 
     @staticmethod
+    async def configure_dns(nodes: list[Node]):
+        hosts = ""
+        dns_node: Dns | None = None
+
+        for node in nodes:
+            if isinstance(node, Dns):
+                dns_node = node
+                continue
+            for interface in node.interfaces:
+                hosts += f"{str(interface.ipaddress)} {node.name}\n"
+        if dns_node:
+            for node in nodes:
+                if isinstance(node, (Dns, Attacker)):
+                    node.kwargs["dns"] = [str(dns_node.interfaces[0].ipaddress)]
+
+            updated_config = copy.deepcopy(constants.DNS_CONFIG).format(hosts)
+            dns_node.config_instructions = [["sh", "-c", f"printf '{updated_config}' >> /etc/coredns/Corefile"]]
+
+    @staticmethod
     async def create_controller(
         infrastructure_supernet: IPNetwork,
         parser: CYSTParser,
@@ -347,7 +397,7 @@ class InfrastructureController:
         docker_network_names: set[str],
         infra_name: str,
     ):
-        networks, routers, nodes = await parser.bake_models()
+        networks, routers, nodes, volumes = await parser.bake_models()
         infrastructure = Infrastructure(
             routers=routers, nodes=nodes, networks=networks, name=infra_name, supernet=infrastructure_supernet
         )
@@ -368,13 +418,14 @@ class InfrastructureController:
         )
 
         await controller.change_names(
-            container_names=docker_container_names,
-            network_names=docker_network_names,
+            container_names=docker_container_names, network_names=docker_network_names, volumes=volumes
         )
         logger.debug(
             "Docker names changed",
             infrastructure_name=infrastructure.name,
         )
+
+        await InfrastructureController.configure_dns(nodes)
 
         return controller
 

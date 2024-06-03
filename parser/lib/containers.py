@@ -11,7 +11,7 @@ def sec_to_nano(seconds: int) -> int:
     :param seconds: Number of seconds
     :return: Number of nanoseconds
     """
-    return seconds * 10**9
+    return seconds * 10 ** 9
 
 
 @dataclass
@@ -37,6 +37,17 @@ class ServiceTag:
 
 
 @dataclass
+class Volume:
+    """
+    Serializable alternative for DB model.
+    """
+
+    name: str  # Name of volume / Path on host
+    bind: str  # Path on container
+    local: bool = False
+
+
+@dataclass
 class Container:
     """
     Container with ServiceTags and necessary information to run a Docker container.
@@ -48,11 +59,12 @@ class Container:
     entrypoint: list[str] = field(default_factory=list)
     command: list[str] = field(default_factory=list)
     _healthcheck: Healthcheck | None = None
-    volumes: list[str] = field(default_factory=list)
+    volumes: list[Volume] = field(default_factory=list)
     environment: dict[str, Any] = field(default_factory=dict)
     requires: set[ServiceTag] = field(default_factory=set)
     can_be_combined: bool = False
     is_attacker: bool = False
+    kwargs: dict[str, Any] = field(default_factory=dict)
 
     @property
     def healthcheck(self) -> dict:
@@ -64,9 +76,17 @@ DEFAULT = Container(
     "registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/node:latest", {ServiceTag("bash"), ServiceTag("sh")}
 )
 ROUTER = Container("registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/router:latest", {ServiceTag("iptables")})
+
+DNS_SERVER = Container(
+    "registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/node:latest",
+    {ServiceTag("bash"), ServiceTag("sh"), ServiceTag("coredns", "1.11.1")},
+    volumes=[Volume("core-dns", "/etc/coredns")]
+)
+
 DATABASE = [
     DEFAULT,
     ROUTER,
+    DNS_SERVER,
     Container(
         "registry.gitlab.ics.muni.cz:443/cryton/cryton-worker:kali",
         {ServiceTag("scripted_actor")},
@@ -138,10 +158,14 @@ DATABASE = [
             "POSTGRES_USER": "dbuser",
             "POSTGRES_PASSWORD": "dbpassword",
         },
-        volumes=[
-            f"{(constants.resources_path / 'create_tables.sql').as_posix()}:/docker-entrypoint-initdb.d/create_tables.sql",
-            f"{(constants.resources_path / 'fill_tables.sql').as_posix()}:/docker-entrypoint-initdb.d/fill_tables.sql",
-        ],
+        # volumes=[
+        #     Volume((constants.resources_path / 'create_tables.sql').as_posix(),
+        #            "/docker-entrypoint-initdb.d/create_tables.sql",
+        #            local=True),
+        #     Volume((constants.resources_path / 'fill_tables.sql').as_posix(),
+        #            "/docker-entrypoint-initdb.d/fill_tables.sql",
+        #            local=True),
+        # ],
     ),
     Container(
         "registry.gitlab.ics.muni.cz:443/cryton/configurations/metasploit-framework:0",
@@ -167,9 +191,16 @@ DATABASE = [
     Container(
         "uexpl0it/vulnerable-packages:backdoored-vsftpd-2.3.4",
         {ServiceTag("vsftpd", "2.3.4")},
-        volumes=[f"{(constants.resources_path / 'vsftpd.log').as_posix()}:/var/log/vsftpd.log"],
+        # volumes=[
+        #     Volume((constants.resources_path / 'vsftpd.log').as_posix(),
+        #            "/var/log/vsftpd.log",
+        #            local=True),
+        # ],
     ),
+    Container("coredns/coredns", {ServiceTag("coredns", "1.11.1")}, volumes=[Volume("core-dns", "/etc/coredns")],
+              command=["-conf", "/etc/coredns/Corefile"], kwargs={"restart_policy": {"Name": "on-failure"}}),
 ]
+
 
 # DATABASE = {
 #     Service("jtr", "1.9.0"): Container(constants.IMAGE_NODE),
@@ -210,9 +241,9 @@ def match_container(node_services: set[ServiceTag]) -> list[Container]:
 
         # Check if at least one of the required services is in the container
         if (
-            db_container.can_be_combined
-            and node_services.difference(db_container.services) < node_services
-            and db_container.services.difference(partial_matches_services)
+                db_container.can_be_combined
+                and node_services.difference(db_container.services) < node_services
+                and db_container.services.difference(partial_matches_services)
         ):
             partial_matches.append(db_container)
             partial_matches_services.update(db_container.services)

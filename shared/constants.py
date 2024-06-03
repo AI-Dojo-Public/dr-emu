@@ -1,6 +1,6 @@
 import pathlib
 
-project_root_path = pathlib.Path(__file__).absolute().parent.parent.parent
+project_root_path = pathlib.Path(__file__).absolute().parent.parent
 resources_path = project_root_path / "resources"
 
 TEMPLATE = "Template"
@@ -25,3 +25,21 @@ SERVICE_STARTED = "service_started"
 # Firewall rules
 FIREWALL_ALLOW = "ALLOW"
 FIREWALL_DENY = "DENY"
+
+
+DNS_CONFIG = """.:53 {{
+   errors
+   health
+   ready
+   hosts {{
+      {}
+      fallthrough
+   }}
+   forward . 8.8.8.8:53 {{
+      max_concurrent 1000
+   }}
+   cache 30
+   loop
+   reload
+}}
+"""

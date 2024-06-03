@@ -24,7 +24,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy_utils import force_instant_defaults, ScalarListType, JSONType
 
-from shared import constants 
+from shared import constants
 from dr_emu.settings import settings
 from dr_emu.lib.exceptions import ContainerNotRunning, PackageNotAccessible
 from dr_emu.lib.logger import logger
@@ -226,6 +226,14 @@ class Interface(Base):
         self._original_ip = str(original_ip) if original_ip else None
 
 
+appliances_volumes = Table(
+    "appliances_volumes",
+    Base.metadata,
+    Column("appliance_id", ForeignKey("appliance.id"), primary_key=True),
+    Column("volume_id", ForeignKey("volume.id"), primary_key=True),
+)
+
+
 class Appliance(DockerContainerMixin, Base):
     """
     Docker container model, parent model for Node and Router.
@@ -236,6 +244,7 @@ class Appliance(DockerContainerMixin, Base):
     _cap_add = mapped_column("cap_add", String, default="NET_ADMIN")
     interfaces: Mapped[list["Interface"]] = relationship(back_populates="appliance", cascade="all, delete-orphan")
     type: Mapped[str]
+    volumes: Mapped[list["Volume"]] = relationship(secondary=appliances_volumes, back_populates="appliances")
     infrastructure_id: Mapped[int] = mapped_column(ForeignKey("infrastructure.id"))
 
     __mapper_args__ = {
@@ -281,6 +290,7 @@ class Appliance(DockerContainerMixin, Base):
             self.client.api.create_host_config,
             cap_add=self.cap_add,
             restart_policy={"Name": "always"},
+            **self.kwargs if self.kwargs else {}
         )
 
     async def create(self):
@@ -303,6 +313,7 @@ class Appliance(DockerContainerMixin, Base):
                 environment=self.environment,
                 command=self.command,
                 healthcheck=self.healthcheck,
+                hostname=self.name,
             )
         )["Id"]
 
@@ -341,7 +352,7 @@ class Infrastructure(Base):
     )
     instance_id: Mapped[int] = mapped_column(ForeignKey("instance.id"))
     instance: Mapped["Instance"] = relationship(back_populates="infrastructure", single_parent=True)
-    
+
     @property
     def supernet(self):
         return IPNetwork(self._supernet)
@@ -349,6 +360,17 @@ class Infrastructure(Base):
     @supernet.setter
     def supernet(self, supernet: IPNetwork):
         self._supernet = str(supernet)
+
+    @property
+    def volumes(self) -> set["Volume"]:
+        volumes = set()
+        for node in self.nodes:
+            for volume in node.volumes:
+                volumes.add(volume)
+            for service in node.services:
+                for service_volume in service.volumes:
+                    volumes.add(service_volume)
+        return volumes
 
 
 class Router(Appliance):
@@ -450,7 +472,8 @@ class Router(Appliance):
             await self.create()
             await asyncio.to_thread((await self.get()).start)
         except APIError as err:
-            logger.error(str(err), container_name=self.name, interfaces=[str(interface.ipaddress) for interface in self.interfaces])
+            logger.error(str(err), container_name=self.name,
+                         interfaces=[str(interface.ipaddress) for interface in self.interfaces])
             raise err
 
         await self.connect_to_networks()
@@ -486,7 +509,7 @@ class Node(Appliance):
     ipc_mode: Mapped[str] = mapped_column(default="shareable", nullable=True)
     infrastructure: Mapped["Infrastructure"] = relationship(back_populates="nodes")
     depends_on: Mapped[dict] = mapped_column(JSONType, default={})
-
+    config_instructions: Mapped[list[str]] = []
     __mapper_args__ = {
         "polymorphic_identity": "node",
     }
@@ -496,11 +519,17 @@ class Node(Appliance):
         Create host configuration for docker container.
         :return:
         """
+        volumes = []
+        for volume in self.volumes:
+            volumes.append(f"{volume.name}:{volume.bind}")
+
         return await asyncio.to_thread(
             self.client.api.create_host_config,
             cap_add=self.cap_add,
             ipc_mode=self.ipc_mode,
             restart_policy={"Name": "always"},
+            binds=volumes,
+            **self.kwargs if self.kwargs else {}
         )
 
     async def configure(self):
@@ -513,7 +542,7 @@ class Node(Appliance):
         setup_instructions = [
             "ip route del default",
             f"ip route add default via {str(self.interfaces[0].network.router_gateway)}",
-        ]
+        ] + self.config_instructions
 
         for instruction in setup_instructions:
             await asyncio.to_thread(container.exec_run, cmd=instruction, privileged=True, user="0")  # type: ignore
@@ -611,6 +640,21 @@ class Attacker(Node):
         #     await asyncio.to_thread(container.exec_run, cmd=instruction)
 
 
+# TODO: Should this be Node or Appliance?
+class Dns(Node):
+    __mapper_args__ = {
+        "polymorphic_identity": "dns",
+    }
+
+
+services_volumes = Table(
+    "services_volumes",
+    Base.metadata,
+    Column("service_id", ForeignKey("service.id"), primary_key=True),
+    Column("volume_id", ForeignKey("volume.id"), primary_key=True),
+)
+
+
 class Service(DockerContainerMixin, Base):
     """
     Service model representing docker container acting as a service running on Node, connected via network_mode.
@@ -625,6 +669,7 @@ class Service(DockerContainerMixin, Base):
         foreign_keys="DependsOn.dependant_service_id",
         cascade="all, delete-orphan",
     )
+    volumes: Mapped[list["Volume"]] = relationship(secondary=services_volumes, back_populates="services")
     type: Mapped[str]
 
     __mapper_args__ = {
@@ -645,7 +690,9 @@ class Service(DockerContainerMixin, Base):
         :return:
         """
         kwargs = self.kwargs if self.kwargs is not None else {}
-
+        volumes = []
+        for volume in self.volumes:
+            volumes.append(f"{volume.name}:{volume.bind}")
         container = await asyncio.to_thread(
             self.client.containers.create,
             image=self.image,
@@ -658,6 +705,7 @@ class Service(DockerContainerMixin, Base):
             command=self.command,
             healthcheck=self.healthcheck,
             tty=self.tty,
+            volumes=volumes,
             **kwargs,
         )
 
@@ -785,3 +833,33 @@ class Instance(Base):
     infrastructure: Mapped["Infrastructure"] = relationship(
         back_populates="instance", uselist=False, cascade="all, delete, delete-orphan"
     )
+
+
+class Volume(DockerMixin, Base):
+    __tablename__ = "volume"
+    bind: Mapped[str] = mapped_column()  # Place where the volume will be mounted inside the container
+    local: Mapped[bool] = mapped_column()
+    appliances: Mapped[list["Appliance"]] = relationship(back_populates="volumes", secondary=appliances_volumes)
+    services: Mapped[list["Service"]] = relationship(back_populates="volumes", secondary=services_volumes)
+
+    async def create(self):
+        """
+        Create docker object
+        :return: None
+        """
+        self.docker_id = self.client.volumes.create(name=self.name).id
+
+    async def get(self):
+        """
+        Get docker object
+        :return: Docker object
+        """
+        return self.client.volumes.get(volume_id=self.docker_id)
+
+    async def delete(self):
+        """
+        Delete docker object
+        :return: None
+        """
+        volume = await self.get()
+        volume.remove(force=True)

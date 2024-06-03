@@ -84,6 +84,26 @@ local_password_auth = AuthenticationProviderConfig(
 )
 
 # -----------------------------------------------------------------------------
+# DNS server
+# -----------------------------------------------------------------------------
+dns_srv = NodeConfig(
+    active_services=[],
+    passive_services=[
+        PassiveServiceConfig(
+            type="coredns",
+            owner="coredns",
+            version="1.11.1",
+            local=False,
+            access_level=AccessLevel.LIMITED,
+        )
+    ],
+    traffic_processors=[],
+    interfaces=[InterfaceConfig(IPAddress("192.168.4.30"), IPNetwork("192.168.4.0/24"))],
+    shell="",
+    id="dns_node",
+)
+
+# -----------------------------------------------------------------------------
 # Wordpress server
 # - used for scenarios 2, 3, and 4
 # -----------------------------------------------------------------------------
@@ -374,7 +394,6 @@ wifi_client5 = NodeConfig(
 # -----------------------------------------------------------------------------
 perimeter_router = RouterConfig(
     interfaces=[
-        # PortConfig(index=0),  # Future port or internal router (not implemented yet)
     ],
     traffic_processors=[
         FirewallConfig(
@@ -451,8 +470,6 @@ internal_router = RouterConfig(
 
 wifi_router = RouterConfig(
     interfaces=[
-        # PortConfig(index=0),  # Future port for perimeter router (not implemented yet)
-        InterfaceConfig(IPAddress("192.168.1.1"), IPNetwork("192.168.1.0/24"), index=1),
     ],
     traffic_processors=[
         FirewallConfig(
@@ -480,13 +497,14 @@ inside_connections = [
     ConnectionConfig("wifi_client5", 0, "wifi_router", -1),
 ]
 
-# router_connections = [
-#     ConnectionConfig("perimeter_router", -1, "internal_router", -1),
-#     ConnectionConfig("perimeter_router", -1, "wifi_router", -1),
-# ]
+router_connections = [
+    ConnectionConfig("perimeter_router", -1, "internal_router", -1),
+    ConnectionConfig("perimeter_router", -1, "wifi_router", -1),
+]
 
 perimeter_connections = [
     ConnectionConfig("attacker_node", 0, "perimeter_router", -1),
+    ConnectionConfig("dns_node", 0, "perimeter_router", -1),
 ]
 
 # Exploits
@@ -498,6 +516,7 @@ vsftpd_exploit = ExploitConfig(
 
 nodes = [
     scripted_attacker,
+    dns_srv,
     wordpress_srv,
     wordpress_db,
     vsftpd_srv,

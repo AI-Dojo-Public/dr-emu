@@ -34,7 +34,7 @@ class TestInfrastructureController:
     @pytest.fixture()
     def infrastructure(self, network):
         infra = Mock(spec=Infrastructure)
-        infra.configure_mock(name="test_infra", networks=[network])
+        infra.configure_mock(name="test_infra", networks=[network], volumes={AsyncMock()})
         return infra
 
     @pytest.fixture(autouse=True)
@@ -46,6 +46,7 @@ class TestInfrastructureController:
         asyncio_gather_spy = mocker.spy(asyncio, "gather")
         create_networks_mock = mocker.patch(f"{self.controller_path}.create_networks")
         create_nodes_mock = mocker.patch(f"{self.controller_path}.create_nodes")
+        create_volumes_mock = mocker.patch(f"{self.controller_path}.create_volumes")
         start_nodes_mock = mocker.patch(f"{self.controller_path}.start_nodes")
         start_routers_mock = mocker.patch(f"{self.controller_path}.start_routers")
         configure_appliances_mock = mocker.patch(f"{self.controller_path}.configure_appliances")
@@ -55,19 +56,21 @@ class TestInfrastructureController:
         create_networks_mock.assert_awaited_once()
         create_nodes_mock.assert_awaited_once()
         start_routers_mock.assert_awaited_once()
+        create_volumes_mock.assert_awaited_once()
         start_nodes_mock.assert_awaited_once()
         configure_appliances_mock.assert_awaited_once()
-        assert asyncio_gather_spy.call_count == 4
+        assert asyncio_gather_spy.call_count == 5
 
     async def test_stop(self, mocker):
         asyncio_gather_spy = mocker.spy(asyncio, "gather")
         mocker.patch(f"{self.controller_path}.delete_nodes", return_value=set(AsyncMock()))
+        mocker.patch(f"{self.controller_path}.delete_volumes", return_value=set(AsyncMock()))
         mocker.patch(f"{self.controller_path}.delete_routers", return_value=set(AsyncMock()))
         mocker.patch(f"{self.controller_path}.delete_networks", return_value=set(AsyncMock()))
 
         await self.controller.stop()
 
-        assert asyncio_gather_spy.call_count == 2
+        assert asyncio_gather_spy.call_count == 3
 
     async def test_change_ipaddresses(self, infrastructure, network):
         network.name = "testing"
@@ -131,8 +134,9 @@ class TestInfrastructureController:
         cyst_parser_mock = AsyncMock()
         networks = [Mock()]
         routers = [Mock()]
-        nodes = [Mock()]
-        bake_models_mock = mocker.patch.object(cyst_parser_mock, "bake_models", return_value=(networks, routers, nodes))
+        nodes = [Mock(interfaces=[Mock()])]
+        volumes = [Mock()]
+        bake_models_mock = mocker.patch.object(cyst_parser_mock, "bake_models", return_value=(networks, routers, nodes, volumes))
         generate_infrastructure_subnets_mock = mocker.patch(
             f"{self.file_path}.util.generate_infrastructure_subnets"
         )
@@ -170,7 +174,7 @@ class TestInfrastructureController:
             infrastructure=infrastructure_mock.return_value,
         )
         change_names_mock.assert_awaited_once_with(
-            container_names=docker_container_names, network_names=docker_network_names
+            container_names=docker_container_names, network_names=docker_network_names, volumes=volumes
         )
         generate_infrastructure_subnets_mock.assert_awaited_once_with(
             infrastructure_supernet, list(cyst_parser_mock.network_ips)

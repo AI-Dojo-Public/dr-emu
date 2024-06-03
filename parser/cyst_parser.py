@@ -15,7 +15,7 @@ from cyst.api.environment.environment import Environment
 from shared import constants
 from dr_emu.lib.logger import logger
 
-from parser.lib.simple_models import Network, Interface, FirewallRule, Router, Service, Node
+from parser.lib.simple_models import Network, Interface, FirewallRule, Router, Service, Node, NodeType
 from dr_emu.models import (
     Network as DockerNetwork,
     Interface as DockerInterface,
@@ -25,7 +25,9 @@ from dr_emu.models import (
     ServiceAttacker as DockerServiceAttacker,
     Node as DockerNode,
     Attacker as DockerAttacker,
+    Dns as DockerDns,
     DependsOn as DockerDependsOn,
+    Volume
 )
 from parser.lib import containers
 
@@ -112,10 +114,19 @@ class CYSTParser:
                 Interface(interface.ip, await self._find_network(interface.net)) for interface in cyst_node.interfaces
             ]
             services = await self._parse_services(cyst_node.active_services + cyst_node.passive_services)
-            is_attacker = len(cyst_node.active_services) > 0
+
+            node_type = NodeType.DEFAULT
+            if len(cyst_node.active_services) > 0:
+                node_type = NodeType.ATTACKER
+            elif "dns" in cyst_node.id or "dns" in [service.type for service in cyst_node.passive_services]:
+                node_type = NodeType.DNS
 
             logger.debug("Adding node", id=cyst_node.id, services=[service.container.image for service in services])
-            self.nodes.append(Node(cyst_node.id, interfaces, containers.DEFAULT, services, is_attacker))
+            # TODO: temporary solution for dns
+            node_container = (
+                containers.DEFAULT if node_type in [NodeType.DEFAULT, NodeType.ATTACKER] else containers.DNS_SERVER
+            )
+            self.nodes.append(Node(cyst_node.id, interfaces, node_container, services, node_type))
 
     async def _parse_services(self, node_services: list[PassiveServiceConfig | ActiveServiceConfig]) -> list[Service]:
         """
@@ -172,7 +183,7 @@ class CYSTParser:
                         if not service_requirements:
                             break
 
-    async def bake_models(self) -> tuple[list[DockerNetwork], list[DockerRouter], list[DockerNode]]:
+    async def bake_models(self) -> tuple[list[DockerNetwork], list[DockerRouter], list[DockerNode], list[Volume]]:
         """
         Create linked database models for the parsed infrastructure.
         :return: Network, Router, and Node models
@@ -180,6 +191,7 @@ class CYSTParser:
         networks: dict[str, DockerNetwork] = dict()
         routers: dict[str, DockerRouter] = dict()
         nodes: dict[str, DockerNode] = dict()
+        volumes: dict[str, Volume] = dict()
 
         # Build DB of Docker networks
         for network in self.networks:
@@ -225,15 +237,24 @@ class CYSTParser:
             interfaces: list[DockerInterface] = list()
             for service in node.services:
                 service_type = DockerServiceAttacker if service.container.is_attacker else DockerService
-                services.append(
-                    service_type(
-                        name=service.name,
-                        image=service.container.image,
-                        environment=copy.deepcopy(service.container.environment),
-                        command=service.container.command,
-                        healthcheck=service.container.healthcheck,
-                    )
+                service_model = service_type(
+                    name=service.name,
+                    image=service.container.image,
+                    environment=copy.deepcopy(service.container.environment),
+                    command=service.container.command,
+                    healthcheck=service.container.healthcheck,
+                    kwargs=copy.deepcopy(service.container.kwargs)
                 )
+                services.append(service_model)
+                for volume in service.container.volumes:
+                    if volume.name in volumes:
+                        service_model.volumes.append(volumes[volume.name])
+                    else:
+                        volume = Volume(name=volume.name, bind=volume.bind, local=volume.local)
+                        volume.services.append(service_model)
+                        volumes[volume.name] = volume
+
+
             all_docker_services += services
             for interface in node.interfaces:
                 interfaces.append(
@@ -242,17 +263,25 @@ class CYSTParser:
                     )
                 )
 
-            node_type = DockerAttacker if node.is_attacker else DockerNode
-            nodes[node.name] = node_type(
+            node_model = node.type.value(
                 name=node.name,
                 interfaces=interfaces,
                 image=node.container.image,
                 services=services,
-                environment=node.container.environment,
+                environment=copy.deepcopy(node.container.environment),
                 command=node.container.command,
                 healthcheck=node.container.healthcheck,
+                config_instructions=[],
+                kwargs=copy.deepcopy(node.container.kwargs),
             )
-
+            for volume in node.container.volumes:
+                if volume.name in volumes:
+                    node_model.volumes.append(volumes[volume.name])
+                else:
+                    volume = Volume(name=volume.name, bind=volume.bind, local=volume.local)
+                    volume.appliances.append(node_model)
+                    volumes[volume.name] = volume
+            nodes[node.name] = node_model
         # Update DB with Docker containers' dependencies
         all_services = [service for node in self.nodes for service in node.services]
         for service in all_services:
@@ -266,7 +295,7 @@ class CYSTParser:
                     DockerDependsOn(dependency=docker_dependency, state=constants.SERVICE_STARTED)
                 )
 
-        return list(networks.values()), list(routers.values()), list(nodes.values())
+        return list(networks.values()), list(routers.values()), list(nodes.values()), list(volumes.values())
 
     async def parse(self):
         """
