@@ -87,26 +87,17 @@ async def get_network_names(docker_client: DockerClient) -> set[str]:
 
 
 async def get_available_networks_for_infras(
-    docker_client: DockerClient,
-    number_of_infrastructures: int,
-    used_infra_supernets: set[IPNetwork]
+    used_networks: set[IPNetwork], number_of_infrastructures: int, used_infra_supernets: set[IPNetwork]
 ) -> list[IPNetwork]:
     """
     Return available subnets(supernets) for infrastructures.
+    :param used_networks: Networks that already exists in docker
     :param used_infra_supernets: Subnets that are already used by other infrastructures
     :param number_of_infrastructures:
-    :param docker_client: client for docker rest api
     :return: list of available Networks, that can be used during infrastructure building.
     """
     logger.debug("Getting available IP addressed for networks")
-    used_networks = set()
     available_networks = []
-    docker_networks = await asyncio.to_thread(docker_client.networks.list)
-    for docker_network in docker_networks:
-        if docker_network.name in ["none", "host"]:
-            continue
-        used_networks.add(IPNetwork(docker_client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"]))
-
     # TODO: what if I run out of ip address space?
     infrastructure_subnets = IPNetwork("10.0.0.0/8").subnet(16)
 
@@ -120,10 +111,13 @@ async def get_available_networks_for_infras(
     return available_networks
 
 
-async def generate_infrastructure_subnets(supernet: IPNetwork, original_networks: list[IPNetwork]) -> list[IPNetwork]:
+async def generate_infrastructure_subnets(
+    supernet: IPNetwork, original_networks: list[IPNetwork], used_networks: set[IPNetwork]
+) -> list[IPNetwork]:
     infrastructure_subnets = []
     for new_subnet in supernet.subnet(original_networks[0].prefixlen):
-        infrastructure_subnets.append(new_subnet)
+        if new_subnet not in used_networks:
+            infrastructure_subnets.append(new_subnet)
         if len(infrastructure_subnets) == len(original_networks) + 1:
             break
 
