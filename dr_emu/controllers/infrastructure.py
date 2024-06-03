@@ -383,7 +383,7 @@ class InfrastructureController:
                 hosts += f"{str(interface.ipaddress)} {node.name}\n"
         if dns_node:
             for node in nodes:
-                if isinstance(node, (Dns, Attacker)):
+                if not isinstance(node, (Dns, Attacker)):
                     node.kwargs["dns"] = [str(dns_node.interfaces[0].ipaddress)]
 
             updated_config = copy.deepcopy(constants.DNS_CONFIG).format(hosts)
@@ -392,6 +392,7 @@ class InfrastructureController:
     @staticmethod
     async def create_controller(
         infrastructure_supernet: IPNetwork,
+        used_docker_networks: set[IPNetwork],
         parser: CYSTParser,
         docker_container_names: set[str],
         docker_network_names: set[str],
@@ -410,7 +411,7 @@ class InfrastructureController:
                         service.environment["CRYTON_WORKER_NAME"] = f"attacker_{infra_name}_{service.name}"
 
         available_networks = await util.generate_infrastructure_subnets(
-            infrastructure_supernet, list(parser.networks_ips)
+            infrastructure_supernet, list(parser.networks_ips), used_docker_networks
         )
         controller = await InfrastructureController.prepare_controller_for_infra_creation(
             available_networks=available_networks,
@@ -461,8 +462,18 @@ class InfrastructureController:
         existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
 
         used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
+        used_docker_networks = set()
+
+        # networks.list doesn't return same objects as networks.get
+        docker_networks = await asyncio.to_thread(client.networks.list)
+        for docker_network in docker_networks:
+            if docker_network.name in ["none", "host"]:
+                continue
+            used_docker_networks.add(
+                IPNetwork(client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"]))
+
         available_infrastructure_supernets = await util.get_available_networks_for_infras(
-            client, number_of_infrastructures, used_infrastructure_supernets
+            used_docker_networks, number_of_infrastructures, used_infrastructure_supernets,
         )
 
         await util.pull_images(client, parser.docker_images)
@@ -483,6 +494,7 @@ class InfrastructureController:
             controllers.append(
                 await InfrastructureController.create_controller(
                     available_infrastructure_supernets[i],
+                    used_docker_networks,
                     parser,
                     docker_container_names,
                     docker_network_names,
