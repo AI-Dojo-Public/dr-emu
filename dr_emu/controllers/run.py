@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from dr_emu.controllers.infrastructure import InfrastructureController
 from dr_emu.lib.logger import logger
-from dr_emu.models import Run, Template, Instance, Infrastructure, Node
+from dr_emu.models import Run, Template, Instance, Infrastructure, Node, Service
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,13 +40,7 @@ async def list_runs(db_session: AsyncSession) -> Sequence[Run]:
     logger.debug("Listing runs")
 
     runs = (
-        (
-            await db_session.scalars(
-                select(Run).options(
-                    joinedload(Run.instances).joinedload(Instance.infrastructure)
-                )
-            )
-        )
+        (await db_session.scalars(select(Run).options(joinedload(Run.instances).joinedload(Instance.infrastructure))))
         .unique()
         .all()
     )
@@ -131,7 +125,9 @@ async def stop_run(run_id: int, db_session: AsyncSession):
                     .options(
                         joinedload(Infrastructure.routers),
                         joinedload(Infrastructure.networks),
-                        joinedload(Infrastructure.nodes).joinedload(Node.services),
+                        joinedload(Infrastructure.nodes).options(
+                            joinedload(Node.services).joinedload(Service.volumes), joinedload(Node.volumes)
+                        ),
                     )
                 )
             )

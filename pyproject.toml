@@ -33,6 +33,7 @@ giturlparse = "^0.12.0"
 alembic = "^1.13.0"
 httpx = "^0.26.0"
 python-dotenv = "^1.0.0"
+requests = "2.31.0"  # hotfix for docker api error
 
 [tool.poetry.group.dev.dependencies]
 black = {extras = ["d"], version = "^23.3.0"}

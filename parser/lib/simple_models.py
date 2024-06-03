@@ -1,6 +1,14 @@
+from enum import Enum
+from typing import Any
+
 from netaddr import IPNetwork, IPAddress
 from dataclasses import dataclass, field
 
+from dr_emu.models import (
+    Node as DockerNode,
+    Attacker as DockerAttacker,
+    Dns as DockerDns,
+)
 from parser.lib.containers import Container
 
 
@@ -62,6 +70,15 @@ class Service:
     depends_on: list["Service"] = field(default_factory=list)
 
 
+class NodeType(Enum):
+    """
+    Defining type of node.
+    """
+    DEFAULT = DockerNode
+    DNS = DockerDns
+    ATTACKER = DockerAttacker
+
+
 @dataclass
 class Node:
     """
@@ -72,4 +89,4 @@ class Node:
     interfaces: list[Interface]
     container: Container
     services: list[Service]
-    is_attacker: bool = False
+    type: NodeType
