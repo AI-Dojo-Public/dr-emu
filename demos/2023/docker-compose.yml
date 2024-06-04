@@ -1,0 +1,311 @@
+x-env: &env
+  # Core
+  CRYTON_CORE_RABBIT_HOST: cryton-rabbit
+  CRYTON_CORE_DB_HOST: cryton-pgbouncer
+  CRYTON_CORE_API_USE_STATIC_FILES: true
+  # CLI
+  CRYTON_CLI_API_HOST: cryton-core
+  CRYTON_CLI_API_PORT: 80
+  # Postgres
+  POSTGRES_PASSWORD: cryton
+  POSTGRES_USER: cryton
+  POSTGRES_DB: cryton
+  POSTGRES_HOST_AUTH_METHOD: md5
+  # PgBounder
+  POSTGRESQL_HOST: cryton-db
+  POSTGRESQL_USERNAME: cryton
+  POSTGRESQL_DATABASE: cryton
+  POSTGRESQL_PASSWORD: cryton
+  PGBOUNCER_DATABASE: cryton
+  PGBOUNCER_PORT: 5432
+  PGBOUNCER_MAX_CLIENT_CONN: 1000
+  PGBOUNCER_MIN_POOL_SIZE: 8
+  PGBOUNCER_POOL_MODE: transaction
+  # Rabbit
+  RABBITMQ_DEFAULT_USER: cryton
+  RABBITMQ_DEFAULT_PASS: cryton
+  # Workstation
+  CRYTON_WORKER_RABBIT_HOST: cryton-rabbit
+  # Developer Workstation
+  DATABASE_NAME: cdri
+  DATABASE_USER: cdri
+  DATABASE_PASSWORD: cdri
+  DATABASE_HOST: wordpress_db_node
+  # WordPress
+  WORDPRESS_DB_HOST: wordpress_db_node
+  WORDPRESS_DB_USER: cdri
+  WORDPRESS_DB_PASSWORD: cdri
+  WORDPRESS_DB_NAME: cdri
+  WP_HOSTNAME: wordpress_node
+  WP_ADMIN_NAME: wordpress
+  WP_ADMIN_PASSWORD: wordpress
+  # MySQL
+  MYSQL_ROOT_PASSWORD: cdri
+  MYSQL_DATABASE: cdri
+  MYSQL_USER: cdri
+  MYSQL_PASSWORD: cdri
+  # MSF
+  MSF_DB_NAME: cryton
+  MSF_DB_USERNAME: cryton
+  MSF_DB_PASSWORD: cryton
+  MSF_DB_HOST: cryton-pgbouncer
+  MSF_DB_PREPARED_STATEMENTS: false
+  MSF_DB_ADVISORY_LOCKS: false
+  # Humanbot
+  HUMANBOT_CONFIG_PATH: /app/config/config_brain.yaml
+
+version: '3.9'
+services:
+  cryton_core:
+    restart: always
+    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-core
+    container_name: cryton-core
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    ports:
+      - "8000:80"
+    depends_on:
+      cryton_pgbouncer:
+        condition: service_started
+      cryton_rabbit:
+        condition: service_healthy
+    healthcheck:
+      test: head /app/log/cryton-core.log -n 20 | grep established
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cryton_frontend:
+    restart: always
+    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-frontend
+    container_name: cryton-frontend
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    ports:
+      - "8080:80"
+
+  cryton_cli:
+    restart: always
+    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-cli
+    container_name: cryton-cli
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    tty: true
+    volumes:
+      - ./cryton-template.yml:/cryton-template.yml
+      - ./inventory.yml:/inventory.yml
+
+  cryton_proxy:
+    restart: always
+    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-core:proxy
+    container_name: cryton-proxy
+    network_mode: service:cryton_core
+    depends_on:
+      cryton_core:
+        condition: service_started
+
+  cryton_db:
+    restart: always
+    image: postgres:15
+    container_name: cryton-db
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    volumes:
+      - cryton_core_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: /usr/bin/pg_isready -U $$POSTGRES_USER
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cryton_pgbouncer:
+    restart: always
+    image: bitnami/pgbouncer:1.18.0
+    container_name: cryton-pgbouncer
+    networks:
+      - demo-2023
+    depends_on:
+      cryton_db:
+        condition: service_healthy
+    environment:
+      <<: *env
+
+  cryton_msf:
+    restart: always
+    image: registry.gitlab.ics.muni.cz:443/cryton/configurations/metasploit-framework:0
+    container_name: cryton-msf
+    network_mode: service:cryton_worker
+    environment:
+      <<: *env
+    tty: true
+    depends_on:
+      cryton_pgbouncer:
+        condition: service_started
+
+  cryton_worker:
+    restart: always
+    image: registry.gitlab.ics.muni.cz:443/cryton/cryton-worker:kali
+    container_name: cryton-worker
+    networks:
+      - demo-2023
+    environment:
+      CRYTON_WORKER_NAME: attacker
+      <<: *env
+
+  cryton_rabbit:
+    restart: always
+    image: rabbitmq:3.11-management
+    container_name: cryton-rabbit
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    ports:
+      - "5672:5672"
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: rabbitmqctl eval '
+        { true, rabbit_app_booted_and_running } = { rabbit:is_booted(node()), rabbit_app_booted_and_running },
+        { [], no_alarms } = { rabbit:alarms(), no_alarms },
+        [] /= rabbit_networking:active_listeners(),
+        rabbitmq_node_is_healthy.
+        ' || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Human bot brain
+  humanbot:
+    image: registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/humanbot:latest
+    restart: always
+    container_name: humanbot
+    networks:
+      - demo-2023
+    volumes:
+      - ./images/humanbot/config:/app/config
+    environment:
+      <<: *env
+    depends_on:
+      cryton_core:
+        condition: service_healthy
+
+  # Clients
+  workstation:
+    image: workstation
+    container_name: workstation
+    hostname: client3
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+      CRYTON_WORKER_NAME: client3
+    build:
+      context: images/client/
+      target: workstation
+    depends_on:
+      cryton_core:
+        condition: service_started
+
+  workstation_developer:
+    image: workstation-developer
+    container_name: workstation-developer
+    hostname: developer
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+      CRYTON_WORKER_NAME: developer
+    build:
+      context: images/client/
+      target: developer
+    depends_on:
+      cryton_core:
+        condition: service_started
+    volumes:
+      - ./images/client/docker/harakiri.py:/home/developer/harakiri.py
+      - ./images/client/docker/harakiri2.py:/home/developer/harakiri2.py
+
+  # Servers
+  database_server:
+    image: cdri-database
+    container_name: cdri-database
+    hostname: wordpress_db_node
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    build:
+      context: images/database-server/
+
+  web_server:
+    image: cdri-web
+    container_name: cdri-web
+    hostname: wordpress_node
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    build:
+      context: images/web-server/
+    depends_on:
+      database_server:
+        condition: service_started
+
+  ftp_server:
+    image: cdri-ftp
+    container_name: cdri-ftp
+    hostname: vsftpd_node
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    build:
+      context: images/ftp-server/
+
+  mail_server:
+    image: cdri-mail
+    container_name: cdri-mail
+    hostname: haraka_node
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    build:
+      context: images/mail-server/
+
+  chat_server:
+    image: cdri-chat
+    container_name: cdri-chat
+    hostname: chat_node
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    build:
+      context: images/chat-server/
+
+  ssh_server:
+    image: cdri-ssh
+    container_name: cdri-ssh
+    hostname: ssh
+    networks:
+      - demo-2023
+    environment:
+      <<: *env
+    build:
+      context: images/ssh-server/
+
+networks:
+  demo-2023:
+    driver: bridge
+
+volumes:
+  cryton_core_db_data:

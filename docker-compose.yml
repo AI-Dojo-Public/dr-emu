@@ -1,4 +1,3 @@
-version: '3.9'
 services:
   dr_emu_db:
     restart: always

@@ -2,8 +2,6 @@ from dataclasses import dataclass, field, asdict
 from typing import Any
 from dr_emu.lib.logger import logger
 
-from shared import constants
-
 
 def sec_to_nano(seconds: int) -> int:
     """
@@ -11,7 +9,7 @@ def sec_to_nano(seconds: int) -> int:
     :param seconds: Number of seconds
     :return: Number of nanoseconds
     """
-    return seconds * 10 ** 9
+    return seconds * 10**9
 
 
 @dataclass
@@ -73,14 +71,13 @@ class Container:
 
 # TODO: unique variables accross infras under a single run
 DEFAULT = Container(
-    "registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/node:latest", {ServiceTag("bash"), ServiceTag("sh")}
+    "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/node:latest", {ServiceTag("bash"), ServiceTag("sh")}
 )
-ROUTER = Container("registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/router:latest", {ServiceTag("iptables")})
-
+ROUTER = Container("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/router:latest", {ServiceTag("iptables")})
 DNS_SERVER = Container(
-    "registry.gitlab.ics.muni.cz:443/ai-dojo/docker-testbed/node:latest",
+    "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/node:latest",
     {ServiceTag("bash"), ServiceTag("sh"), ServiceTag("coredns", "1.11.1")},
-    volumes=[Volume("core-dns", "/etc/coredns")]
+    volumes=[Volume("core-dns", "/etc/coredns")],
 )
 
 DATABASE = [
@@ -88,31 +85,31 @@ DATABASE = [
     ROUTER,
     DNS_SERVER,
     Container(
-        "registry.gitlab.ics.muni.cz:443/cryton/cryton-worker:kali",
+        "registry.gitlab.ics.muni.cz:443/cryton/cryton/worker:latest",
         {ServiceTag("scripted_actor")},
         environment={
             "CRYTON_WORKER_NAME": "attacker",
             "CRYTON_WORKER_DEBUG": True,
-            "CRYTON_WORKER_MODULES_DIR": "/app/cryton-modules/modules",
-            "CRYTON_WORKER_MSFRPCD_PORT": 55553,
-            "CRYTON_WORKER_MSFRPCD_HOST": "localhost",
-            "CRYTON_WORKER_MSFRPCD_USERNAME": "cryton",
-            "CRYTON_WORKER_MSFRPCD_PASSWORD": "cryton",
+            "CRYTON_WORKER_METASPLOIT_PORT": 55553,
+            "CRYTON_WORKER_METASPLOIT_HOST": "127.0.0.1",
+            "CRYTON_WORKER_METASPLOIT_USERNAME": "cryton",
+            "CRYTON_WORKER_METASPLOIT_PASSWORD": "cryton",
+            "CRYTON_WORKER_METASPLOIT_SSL": True,
             "CRYTON_WORKER_RABBIT_HOST": "cryton-rabbit",
             "CRYTON_WORKER_RABBIT_PORT": 5672,
             "CRYTON_WORKER_RABBIT_USERNAME": "cryton",
             "CRYTON_WORKER_RABBIT_PASSWORD": "cryton",
-            "CRYTON_WORKER_EMPIRE_HOST": "localhost",
+            "CRYTON_WORKER_EMPIRE_HOST": "127.0.0.1",
             "CRYTON_WORKER_EMPIRE_PORT": 1337,
             "CRYTON_WORKER_EMPIRE_USERNAME": "cryton",
             "CRYTON_WORKER_EMPIRE_PASSWORD": "cryton",
-            "CRYTON_WORKER_MAX_RETRIES": 20,
+            "CRYTON_WORKER_MAX_RETRIES": 3,
         },
         can_be_combined=True,
-        is_attacker=True
+        is_attacker=True,
     ),
     Container(
-        "wordpress:6.1.1-apache",
+        "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/web-server:latest",
         {ServiceTag("wordpress", "6.1.1")},
         _healthcheck=Healthcheck(
             [
@@ -124,15 +121,18 @@ DATABASE = [
             3,
         ),
         environment={
-            "WORDPRESS_DB_HOST": "wordpress_db.demo",
-            "WORDPRESS_DB_USER": "wordpress",
-            "WORDPRESS_DB_PASSWORD": "wordpress",
-            "WORDPRESS_DB_NAME": "wordpress",
+            "WORDPRESS_DB_HOST": "wordpress_db_node",
+            "WORDPRESS_DB_USER": "cdri",
+            "WORDPRESS_DB_PASSWORD": "cdri",
+            "WORDPRESS_DB_NAME": "cdri",
+            "WP_HOSTNAME": "wordpress_node",
+            "WP_ADMIN_NAME": "wordpress",
+            "WP_ADMIN_PASSWORD": "wordpress",
         },
         requires={ServiceTag("mysql", "8.0.31")},
     ),
     Container(
-        "mysql:8.0.31",
+        "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/database-server:latest",
         {ServiceTag("mysql", "8.0.31")},
         _healthcheck=Healthcheck(
             test=[
@@ -144,76 +144,49 @@ DATABASE = [
             retries=3,
         ),
         environment={
-            "MYSQL_ROOT_PASSWORD": "wordpress",
-            "MYSQL_DATABASE": "wordpress",
-            "MYSQL_USER": "wordpress",
-            "MYSQL_PASSWORD": "wordpress",
+            "MYSQL_ROOT_PASSWORD": "cdri",
+            "MYSQL_DATABASE": "cdri",
+            "MYSQL_USER": "cdri",
+            "MYSQL_PASSWORD": "cdri",
         },
     ),
     Container(
-        "postgres:10.5",
-        {ServiceTag("postgres", "10.5.0")},
-        environment={
-            "POSTGRES_DB": "beastdb",
-            "POSTGRES_USER": "dbuser",
-            "POSTGRES_PASSWORD": "dbpassword",
-        },
-        # volumes=[
-        #     Volume((constants.resources_path / 'create_tables.sql').as_posix(),
-        #            "/docker-entrypoint-initdb.d/create_tables.sql",
-        #            local=True),
-        #     Volume((constants.resources_path / 'fill_tables.sql').as_posix(),
-        #            "/docker-entrypoint-initdb.d/fill_tables.sql",
-        #            local=True),
-        # ],
-    ),
-    Container(
-        "registry.gitlab.ics.muni.cz:443/cryton/configurations/metasploit-framework:0",
+        "sadparad1se/metasploit-framework:rpc",
         {ServiceTag("metasploit", "0.1.0")},
         environment={
-            "MSF_RPC_HOST": "localhost",
-            "MSF_RPC_PORT": 55553,
-            "MSF_RPC_SSL": True,
-            "MSF_RPC_USERNAME": "cryton",
-            "MSF_RPC_PASSWORD": "cryton",
+            "METASPLOIT_RPC_USERNAME": "cryton",
+            "METASPLOIT_RPC_PASSWORD": "cryton",
         },
         can_be_combined=True,
     ),
     Container(
         "bcsecurity/empire:v4.10.0",
         {ServiceTag("empire", "4.10.0")},
-        environment={
-            "CRYTON_WORKER_EMPIRE_USERNAME": "cryton",
-            "CRYTON_WORKER_EMPIRE_PASSWORD": "cryton",
-        },
+        command=["server", "--username", "cryton", "--password", "cryton"],
         can_be_combined=True,
     ),
+    Container("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/ftp-server:latest", {ServiceTag("vsftpd", "2.3.4")}),
     Container(
-        "uexpl0it/vulnerable-packages:backdoored-vsftpd-2.3.4",
-        {ServiceTag("vsftpd", "2.3.4")},
-        # volumes=[
-        #     Volume((constants.resources_path / 'vsftpd.log').as_posix(),
-        #            "/var/log/vsftpd.log",
-        #            local=True),
-        # ],
+        "coredns/coredns",
+        {ServiceTag("coredns", "1.11.1")},
+        volumes=[Volume("core-dns", "/etc/coredns")],
+        command=["-conf", "/etc/coredns/Corefile"],
+        kwargs={"restart_policy": {"Name": "on-failure"}},
     ),
-    Container("coredns/coredns", {ServiceTag("coredns", "1.11.1")}, volumes=[Volume("core-dns", "/etc/coredns")],
-              command=["-conf", "/etc/coredns/Corefile"], kwargs={"restart_policy": {"Name": "on-failure"}}),
+    Container(
+        "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/workstation:developer",
+        {ServiceTag("ssh", "5.1.4"), ServiceTag("bash", "8.1.0")},
+        environment={"CRYTON_WORKER_RABBIT_HOST": "cryton-rabbit", "CRYTON_WORKER_NAME": "developer"},
+    ),
+    Container(
+        "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/workstation:phished",
+        {ServiceTag("bash", "8.1.0")},
+        # TODO: worker name should be unique
+        environment={"CRYTON_WORKER_RABBIT_HOST": "cryton-rabbit", "CRYTON_WORKER_NAME": "client"},
+    ),
+    Container("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/mail-server:latest", {ServiceTag("mail", "8.1.0")}),
+    Container("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/chat-server:latest", {ServiceTag("chat", "0.1.0")}),
 ]
-
-
-# DATABASE = {
-#     Service("jtr", "1.9.0"): Container(constants.IMAGE_NODE),
-#     Service("empire", "4.10.0"): Container(constants.IMAGE_NODE),
-#     Service("msf", "1.0.0"): Container(constants.IMAGE_NODE),
-#     # Service("wordpress_app", "6.1.1"): Container(constants.IMAGE_NODE),
-#     # Service("wordpress_db", "8.0.31"): Container(constants.IMAGE_NODE),
-#     Service("vsftpd", "2.3.4"): Container(constants.IMAGE_NODE),
-#     Service("postgres", "10.5.0"): Container(constants.IMAGE_NODE),
-#     Service("haraka", "2.3.4"): Container(constants.IMAGE_NODE),
-#     Service("tchat", "2.3.4"): Container(constants.IMAGE_NODE),
-#     Service("ssh", "5.1.4"): Container(constants.IMAGE_NODE),
-# }
 
 
 def match_container(node_services: set[ServiceTag]) -> list[Container]:
@@ -241,9 +214,9 @@ def match_container(node_services: set[ServiceTag]) -> list[Container]:
 
         # Check if at least one of the required services is in the container
         if (
-                db_container.can_be_combined
-                and node_services.difference(db_container.services) < node_services
-                and db_container.services.difference(partial_matches_services)
+            db_container.can_be_combined
+            and node_services.difference(db_container.services) < node_services
+            and db_container.services.difference(partial_matches_services)
         ):
             partial_matches.append(db_container)
             partial_matches_services.update(db_container.services)

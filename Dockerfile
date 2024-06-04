@@ -30,6 +30,7 @@ WORKDIR /app
 # install python dependencies
 RUN poetry config installer.max-workers 10
 RUN poetry install --no-interaction --no-ansi -v
+RUN poetry run pip install --upgrade setuptools  # In order for CYST to work on Python3.12
 RUN ln -s /app/.venv/bin/dr-emu /root/.local/bin/dr-emu
 
 # run application

