@@ -290,7 +290,7 @@ class Appliance(DockerContainerMixin, Base):
             self.client.api.create_host_config,
             cap_add=self.cap_add,
             restart_policy={"Name": "always"},
-            **self.kwargs if self.kwargs else {}
+            **self.kwargs if self.kwargs else {},
         )
 
     async def create(self):
@@ -347,9 +347,7 @@ class Infrastructure(Base):
     _supernet = mapped_column("supernet", String)
     networks: Mapped[list["Network"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
     routers: Mapped[list["Router"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
-    nodes: Mapped[list["Node"]] = relationship(
-        back_populates="infrastructure", cascade="all, delete-orphan"
-    )
+    nodes: Mapped[list["Node"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
     instance_id: Mapped[int] = mapped_column(ForeignKey("instance.id"))
     instance: Mapped["Instance"] = relationship(back_populates="infrastructure", single_parent=True)
 
@@ -472,8 +470,11 @@ class Router(Appliance):
             await self.create()
             await asyncio.to_thread((await self.get()).start)
         except APIError as err:
-            logger.error(str(err), container_name=self.name,
-                         interfaces=[str(interface.ipaddress) for interface in self.interfaces])
+            logger.error(
+                str(err),
+                container_name=self.name,
+                interfaces=[str(interface.ipaddress) for interface in self.interfaces],
+            )
             raise err
 
         await self.connect_to_networks()
@@ -529,7 +530,7 @@ class Node(Appliance):
             ipc_mode=self.ipc_mode,
             restart_policy={"Name": "always"},
             binds=volumes,
-            **self.kwargs if self.kwargs else {}
+            **self.kwargs if self.kwargs else {},
         )
 
     async def configure(self):

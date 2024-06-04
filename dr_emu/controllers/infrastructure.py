@@ -403,13 +403,6 @@ class InfrastructureController:
             routers=routers, nodes=nodes, networks=networks, name=infra_name, supernet=infrastructure_supernet
         )
 
-        # TODO: Kinda hotfix for unique worker names
-        for node in nodes:
-            if type(node) is Attacker:
-                for service in node.services:
-                    if type(service) is ServiceAttacker:
-                        service.environment["CRYTON_WORKER_NAME"] = f"attacker_{infra_name}_{service.name}"
-
         available_networks = await util.generate_infrastructure_subnets(
             infrastructure_supernet, list(parser.networks_ips), used_docker_networks
         )
@@ -425,6 +418,15 @@ class InfrastructureController:
             "Docker names changed",
             infrastructure_name=infrastructure.name,
         )
+
+        # TODO: Kinda hotfix for unique worker names
+        for node in nodes:
+            if isinstance(node, Attacker):
+                for service in node.services:
+                    if isinstance(service, ServiceAttacker):
+                        service.environment["CRYTON_WORKER_NAME"] = f"attacker_{infra_name}_{service.name}"
+                    elif "metasploit" in service.image:
+                        service.environment["METASPLOIT_LHOST"] = str(node.interfaces[0].ipaddress)
 
         await InfrastructureController.configure_dns(nodes)
 
@@ -470,10 +472,13 @@ class InfrastructureController:
             if docker_network.name in ["none", "host"]:
                 continue
             used_docker_networks.add(
-                IPNetwork(client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"]))
+                IPNetwork(client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"])
+            )
 
         available_infrastructure_supernets = await util.get_available_networks_for_infras(
-            used_docker_networks, number_of_infrastructures, used_infrastructure_supernets,
+            used_docker_networks,
+            number_of_infrastructures,
+            used_infrastructure_supernets,
         )
 
         await util.pull_images(client, parser.docker_images)

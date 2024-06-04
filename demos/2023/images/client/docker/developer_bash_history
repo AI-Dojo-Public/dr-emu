@@ -1,0 +1,5 @@
+git push
+tail -f var/logs/error
+nano +22,5 functions.sh
+source project-env/bin/activate
+history

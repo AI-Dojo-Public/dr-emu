@@ -1,0 +1,138 @@
+/* (A) ENTIRE PAGE */
+* {
+  font-family: Arial, Helvetica, sans-serif;
+  box-sizing: border-box;
+}
+
+/* (B) LAYOUT */
+body {
+  padding: 0; margin: 0;
+  width: 100vw; height: 100vh;
+  display: flex;
+  align-items: stretch;
+}
+#uLeft, #uRight { overflow: auto; }
+#uLeft {
+  width: 170px;
+  color: #fff;
+  background: #3a3a3a;
+}
+#uRight {
+  flex-grow: 1;
+  background: #fafafa;
+}
+
+/* (C) LEFT : USERS LIST */
+/* (C1) SHARED */
+#uNow, .uRow { padding: 10px; }
+
+/* (C2) CURRENT USER */
+#uNow {
+  font-weight: 700;
+  background: #1e1e1e;
+  text-align: center;
+}
+#uNow img {
+  width: 80px;
+  border-radius: 50%;
+  margin-bottom: 5px;
+}
+
+/* (C3) USERS LIST */
+.uRow {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #545454;
+}
+.uRow:hover {
+  cursor: pointer;
+  background: #2e2e2e;
+}
+.uRow.now {
+  background: #890e0e;
+  font-weight: 700;
+}
+.uName { flex-grow: 1; }
+.uUnread {
+  text-decoration: none;
+  display: inline-block;
+  color: #fff;
+  background: #1e1e1e;
+  padding: 5px;
+  margin-right: 5px;
+}
+
+/* (D) RIGHT : MESSAGES */
+/* (D1) SEND MESSAGE FORM */
+#uSend {
+  display: none;
+  padding: 15px;
+  background: #eee;
+}
+#uSend input { padding: 10px; }
+#uSend input[type=text] {
+  flex-grow: 1;
+  border: 0;
+}
+#uSend input[type=submit] {
+  color: #fff;
+  background: #890e0e;
+  border: 0;
+}
+
+/* (D2) MESSAGES - SHARED */
+.mRow {
+  display: flex;
+  margin: 10px;
+}
+.mOut { flex-direction: row; }
+.mIn { flex-direction: row-reverse; }
+.mRowMsg {
+  position: relative;
+  padding: 10px;
+  border-radius: 10px;
+}
+.mDate { color: #a7a7a7; }
+.mSender, .mDate { font-size: 0.8em; }
+.mTxt {
+  padding: 5px 0;
+  font-size: 1.1em;
+}
+
+/* (D3) MESSAGES - SENT */
+.mOut .mRowMsg {
+  margin-left: 20px;
+  background: #dde5ff;
+}
+.mOut .mTxt { color: #212491; }
+.mOut .mSender { color: #9295fd; }
+
+/* (D3) MESSAGES - RECEIVED */
+.mIn .mRowMsg {
+  margin-right: 20px;
+  text-align: right;
+  background: #ffe7e7;
+}
+.mIn .mTxt { color: #c52020; }
+.mIn .mSender { color: #dfa9a9; }
+
+/* (D4) SPEECH BUBBLE TAIL */
+.mRowMsg::after {
+  position: absolute;
+  content: "";
+  border: 13px solid transparent;
+}
+.mOut .mRowMsg::after {
+  border-right-color:#dde5ff;
+  border-left: 0;
+  margin-top: -13px;
+  top: 50%;
+  left: -13px;
+}
+.mIn .mRowMsg::after {
+  border-left-color:#ffe7e7;
+  border-right: 0;
+  margin-top: -13px;
+  top: 50%;
+  right: -13px;
+}

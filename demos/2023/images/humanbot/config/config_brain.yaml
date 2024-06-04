@@ -1,0 +1,6 @@
+---
+roles_config_file: /app/config/roles.yaml
+profiles_directory: /app/config/profiles
+connector:
+  connector_type: CRYTON
+  connector_config_path: /app/config/config_cryton_connector.yaml

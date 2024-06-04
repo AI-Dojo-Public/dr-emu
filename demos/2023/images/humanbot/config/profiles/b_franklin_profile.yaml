@@ -1,0 +1,14 @@
+---
+
+full_name: "Benjamin Franklin"
+sex: male
+age: 317
+role_name: IT
+proficiency_level: senior
+work_effort: hard
+protocol_credentials:
+  - protocol_name: SecureShellProtocol
+    username: test
+    password: test
+    host: ssh
+    port: 22
