@@ -6,6 +6,9 @@ default:
 variables:
   DOCKER_TLS_CERTDIR: "/certs"
 
+stages:
+  - test
+  - build
 
 .tests:
   stage: test
@@ -36,7 +39,6 @@ variables:
     - export PATH="/root/.local/bin:$PATH"
     - poetry install
 
-
 unit_tests:
   extends: .tests
   script:
@@ -48,3 +50,19 @@ integration_tests:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
   script:
     - poetry run pytest tests/integration/
+
+build_docker_image_dr_emu:
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [ "" ]
+  stage: build
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"
+  script:
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${CI_REGISTRY_USER}\",\"password\":\"${CI_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor
+      --context $CI_PROJECT_DIR
+      --target dr_emu
+      --skip-unused-stages
+      --destination $CI_REGISTRY_IMAGE/dr-emu:$CI_COMMIT_SHA
+      --destination $CI_REGISTRY_IMAGE/dr-emu:latest

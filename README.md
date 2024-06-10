@@ -85,3 +85,10 @@ python .\tests\e2e\deployment_checker.py
 ```bash
 python3.11 tests/e2e/deployment_checker.py
 ```
+
+## Build Docker image
+Build and push the image:
+```shell
+docker build --target dr_emu --tag registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/dr-emu:$(git rev-parse --short HEAD) --tag registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/dr-emu:latest .
+docker push --all-tags registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/dr-emu
+```
