@@ -17,7 +17,6 @@ services:
       restart: always
       build:
         context: .
-        dockerfile: Dockerfile
         target: dr_emu
         args:
           POETRY_VIRTUALENVS_IN_PROJECT: true
@@ -26,7 +25,7 @@ services:
         dr_emu_db:
           condition: service_healthy
       ports:
-        - "0.0.0.0:8000:8000"
+        - "127.0.0.1:8000:8000"
       env_file:
         - .env
       volumes:

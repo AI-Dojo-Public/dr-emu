@@ -14,26 +14,24 @@ FROM docker:latest as dr_emu
 ARG POETRY_VIRTUALENVS_IN_PROJECT
 ENV POETRY_VIRTUALENVS_IN_PROJECT $POETRY_VIRTUALENVS_IN_PROJECT
 
-# Copy app
-COPY . /app/
-
-# install system dependencies
+# Install system dependencies
 RUN apk add --no-cache build-base curl python3-dev g++ gcc
 
-
-# install poetry
+# Install poetry
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="/root/.local/bin:$PATH"
 
 WORKDIR /app
 
-# install python dependencies
-RUN poetry config installer.max-workers 10
-RUN poetry install --no-interaction --no-ansi -v
-RUN poetry run pip install --upgrade setuptools  # In order for CYST to work on Python3.12
+# Install application and dependencies
+COPY . .
+RUN poetry install --no-interaction --no-ansi
+RUN poetry run pip install --upgrade setuptools  # In order for CYST to work on Python >= 3.12
+
+# Link dr-emu executable
 RUN ln -s /app/.venv/bin/dr-emu /root/.local/bin/dr-emu
 
-# run application
+# Run application
 ENTRYPOINT [ "/app/entrypoint.sh" ]
 CMD ["poetry", "run", "uvicorn", "dr_emu.app:app", "--reload", "--host", "0.0.0.0"]
 
