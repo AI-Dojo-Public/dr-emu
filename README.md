@@ -14,11 +14,9 @@ Clone the repo:
 ```shell
 git clone git@gitlab.ics.muni.cz:ai-dojo/dr-emu.git
 cd dr-emu
-git clone git@gitlab.ics.muni.cz:cyst/cyst-core.git
 ```
 
-### Deploy dr-emu:
-
+Deploy dr-emu:
 ```shell
 docker compose up -d
 ```
