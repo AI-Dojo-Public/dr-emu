@@ -143,3 +143,11 @@ async def pull_images(docker_client, images):
         await asyncio.gather(*pull_image_tasks)
 
     logger.info("Completed pulling docker images")
+
+
+async def check_running_tasks(name):
+    loop = asyncio.get_running_loop()
+    for task in asyncio.all_tasks(loop):
+        if task.get_name() == name and not task.done():
+            return True
+    return False

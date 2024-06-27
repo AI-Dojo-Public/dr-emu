@@ -1,3 +1,5 @@
+import asyncio
+
 from docker.errors import ImageNotFound, APIError, NotFound
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import NoResultFound
@@ -5,7 +7,10 @@ from sqlalchemy.exc import NoResultFound
 from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import run as run_controller
+from dr_emu.lib.util import check_running_tasks
 from dr_emu.schemas.run import Run, RunOut, RunInfo
+from dr_emu.lib.logger import logger
+
 from shared import constants
 
 router = APIRouter(
@@ -74,9 +79,13 @@ private ip range of the **10.0.0.0/8** is available.
     )
 async def start_run(session: DBSession, run_id: int, instances: int = 1):
     try:
-        await run_controller.start_run(
+        while await check_running_tasks("build_run"):
+            logger.info("Waiting for previous run to finish")
+            await asyncio.sleep(1)
+            continue
+        await asyncio.create_task(run_controller.start_run(
             run_id, instances, session
-        )
+        ), name="build_run")
     except NoResultFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id)
