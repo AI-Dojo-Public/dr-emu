@@ -95,6 +95,7 @@ DATABASE = [
             "CRYTON_WORKER_METASPLOIT_USERNAME": "cryton",
             "CRYTON_WORKER_METASPLOIT_PASSWORD": "cryton",
             "CRYTON_WORKER_METASPLOIT_SSL": True,
+            "CRYTON_WORKER_METASPLOIT_REQUIRE": True,
             "CRYTON_WORKER_RABBIT_HOST": "cryton-rabbit",
             "CRYTON_WORKER_RABBIT_PORT": 5672,
             "CRYTON_WORKER_RABBIT_USERNAME": "cryton",
