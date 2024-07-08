@@ -145,7 +145,7 @@ async def pull_image(docker_client, image):
             try:
                 await asyncio.to_thread(docker_client.images.pull, image)
                 break
-            except docker.errors.DockerException as err:
+            except docker.errors.DockerException as err:  # TODO: find out what exception is thrown during unreachable image pull source (Server Timeout)
                 logger.error(f"Could not pull image {image} due to {err}... retrying")
                 await asyncio.sleep(1)
 
