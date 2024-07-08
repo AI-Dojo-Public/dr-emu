@@ -130,19 +130,24 @@ async def pull_images(docker_client, images):
     Pull docker images that will be used in the infrastructure.
     :return:
     """
-    pull_image_tasks = set()
     logger.debug(f"Pulling docker images")
-    for image in images:
-        try:
-            await asyncio.to_thread(docker_client.images.get, image)
-        except docker.errors.ImageNotFound:
-            logger.info(f"pulling image", image=image)
-            pull_image_tasks.add(asyncio.create_task(asyncio.to_thread(docker_client.images.pull, image)))
+    async with asyncio.TaskGroup() as tg:
+        for image in images:
+            tg.create_task(pull_image(docker_client, image))
 
-    if pull_image_tasks:
-        await asyncio.gather(*pull_image_tasks)
 
-    logger.info("Completed pulling docker images")
+async def pull_image(docker_client, image):
+    try:
+        await asyncio.to_thread(docker_client.images.get, image)
+    except docker.errors.ImageNotFound:
+        logger.info(f"pulling image", image=image)
+        for i in range(3):
+            try:
+                await asyncio.to_thread(docker_client.images.pull, image)
+                break
+            except docker.errors.DockerException as err:
+                logger.error(f"Could not pull image {image} due to {err}... retrying")
+                await asyncio.sleep(1)
 
 
 async def check_running_tasks(name):
