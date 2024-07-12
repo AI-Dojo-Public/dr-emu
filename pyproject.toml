@@ -43,6 +43,24 @@ pytest = "^7.4.2"
 pytest-asyncio = "^0.21.1"
 pytest-mock = "^3.11.1"
 aiosqlite = "^0.19.0"
+pyright = "^1.1.371"
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+useLibraryCodeForTypes = true
+reportMissingImports = true
+reportImportCycles = true
+reportMissingTypeStubs = true
+venvPath = "./.venv/"
+venv = "./"
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    "typings/",
+    ".venv/",
+]
 
 [build-system]
 requires = ["poetry-core"]

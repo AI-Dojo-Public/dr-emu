@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dr_emu.lib.logger import logger
 from dr_emu.models import Template
-from dr_emu.schemas.template import TemplateOut
 
 
 async def create_template(name: str, infra_description: str, db_session: AsyncSession) -> Template:
