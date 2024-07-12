@@ -13,24 +13,25 @@ services:
       interval: 20s
       timeout: 10s
       retries: 5
-
-  dr_emu:
-      restart: always
-      build:
-        context: .
-        target: dr_emu
-        args:
-          POETRY_VIRTUALENVS_IN_PROJECT: true
-      container_name: dr-emu
-      depends_on:
-        dr_emu_db:
-          condition: service_healthy
-      ports:
-        - "127.0.0.1:8000:8000"
-      env_file:
-        - .env
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:5432:5432"
+#  dr_emu:
+#      restart: always
+#      build:
+#        context: .
+#        target: dr_emu
+#        args:
+#          POETRY_VIRTUALENVS_IN_PROJECT: true
+#      container_name: dr-emu
+#      depends_on:
+#        dr_emu_db:
+#          condition: service_healthy
+#      ports:
+#        - "127.0.0.1:8000:8000"
+#      env_file:
+#        - .env
+#      volumes:
+#        - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   dr-emu-data:

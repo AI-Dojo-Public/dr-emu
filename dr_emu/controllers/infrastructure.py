@@ -1,12 +1,12 @@
 import asyncio
 import copy
-from typing import Optional, Sequence
+from typing import Sequence
 
 import randomname
 from sqlalchemy import select
 import docker
-from docker.errors import ImageNotFound, APIError, NullResource
-from netaddr import IPNetwork
+from docker.errors import ImageNotFound, APIError, NullResource, NotFound
+from netaddr import IPNetwork, IPAddress
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy.orm import joinedload
@@ -25,6 +25,7 @@ from dr_emu.models import (
     Attacker,
     Dns,
     ServiceAttacker,
+    Volume
 )
 
 from parser.cyst_parser import CYSTParser
@@ -36,12 +37,12 @@ class InfrastructureController:
     Class for handling actions regarding creating and destroying the infrastructure in docker.
     """
 
-    def __init__(self, infrastructure: Optional[Infrastructure] = None):
+    def __init__(self, infrastructure: Infrastructure):
         self.client = docker.from_env()
         self.infrastructure = infrastructure
 
     @staticmethod
-    async def get_infra(infrastructure_id, db_session: AsyncSession):
+    async def get_infra(infrastructure_id: int, db_session: AsyncSession):
         # Exception handled in outer function
         return (
             (await db_session.execute(select(Infrastructure).where(Infrastructure.id == infrastructure_id)))
@@ -73,7 +74,7 @@ class InfrastructureController:
         await asyncio.gather(*start_node_tasks, *start_router_tasks)
         logger.debug("Appliances started", infrastructure_name=self.infrastructure.name)
 
-        configure_appliance_tasks = await self.configure_appliances()
+        configure_appliance_tasks: set[asyncio.Task[None]] = await self.configure_appliances()
         await asyncio.gather(*configure_appliance_tasks)
         logger.debug("Appliances configured", infrastructure_name=self.infrastructure.name)
 
@@ -83,7 +84,7 @@ class InfrastructureController:
             name=self.infrastructure.name,
         )
 
-    async def create_networks(self) -> set[asyncio.Task]:
+    async def create_networks(self) -> set[asyncio.Task[None]]:
         """
         Creates async tasks for creating networks.
         :return: set of tasks for network creation
@@ -91,7 +92,7 @@ class InfrastructureController:
         logger.debug("Creating networks", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(network.create()) for network in self.infrastructure.networks}
 
-    async def start_routers(self) -> set[asyncio.Task]:
+    async def start_routers(self) -> set[asyncio.Task[None]]:
         """
         Creates async tasks for creating and starting routers.
         :return: set of tasks to start router containers
@@ -99,7 +100,7 @@ class InfrastructureController:
         logger.debug("Starting routers", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(router.start()) for router in self.infrastructure.routers}
 
-    async def create_nodes(self) -> set[asyncio.Task]:
+    async def create_nodes(self) -> set[asyncio.Task[None]]:
         """
         Creates async tasks for creating nodes.
         :return: set of tasks to create node containers
@@ -107,7 +108,7 @@ class InfrastructureController:
         logger.debug("Creating nodes", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(node.create()) for node in self.infrastructure.nodes}
 
-    async def start_nodes(self) -> set[asyncio.Task]:
+    async def start_nodes(self) -> set[asyncio.Task[None]]:
         """
         Creates async tasks for starting nodes.
         :return: set of tasks to start node containers
@@ -115,7 +116,7 @@ class InfrastructureController:
         logger.debug("Starting nodes", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(node.start()) for node in self.infrastructure.nodes}
 
-    async def create_volumes(self) -> set[asyncio.Task]:
+    async def create_volumes(self) -> set[asyncio.Task[None]]:
         """
         Creates async tasks for creating nodes.
         :return: set of tasks to create node containers
@@ -123,16 +124,14 @@ class InfrastructureController:
         logger.debug("Creating volumes", infrastructure_name=self.infrastructure.name)
         return {asyncio.create_task(volume.create()) for volume in self.infrastructure.volumes}
 
-    async def configure_appliances(self) -> set[asyncio.Task]:
+    async def configure_appliances(self) -> set[asyncio.Task[None]]:
         """
         Create async tasks for configuring iptables and ip routes in Nodes and Routers.
         :return:
         """
         logger.debug("Configuring appliances", infrastructure_name=self.infrastructure.name)
         node_configure_tasks = {asyncio.create_task(node.configure()) for node in self.infrastructure.nodes}
-
-        routers = self.infrastructure.routers
-        router_configure_tasks = {asyncio.create_task(router.configure(routers)) for router in routers}
+        router_configure_tasks = {asyncio.create_task(router.configure()) for router in self.infrastructure.routers}
 
         logger.debug("Appliances configured", infrastructure_name=self.infrastructure.name)
         return node_configure_tasks.union(router_configure_tasks)
@@ -172,7 +171,7 @@ class InfrastructureController:
         delete_volumes_tasks = await self.delete_volumes()
         await asyncio.gather(*delete_volumes_tasks)
 
-    async def delete_networks(self, check_id: bool) -> set[asyncio.Task]:
+    async def delete_networks(self, check_id: bool) -> set[asyncio.Task[None]]:
         """
         Creates async tasks for deletion of networks.
         :param check_id:
@@ -183,13 +182,13 @@ class InfrastructureController:
             infrastructure_name=self.infrastructure.name,
             infrastructure_id=self.infrastructure.id,
         )
-        network_tasks = set()
+        network_tasks: set[asyncio.Task[None]] = set()
         for network in self.infrastructure.networks:
             if not check_id or (check_id and network.docker_id != ""):
                 network_tasks.add(asyncio.create_task(network.delete()))
         return network_tasks
 
-    async def delete_routers(self, check_id: bool) -> set[asyncio.Task]:
+    async def delete_routers(self, check_id: bool) -> set[asyncio.Task[None]]:
         """
         Creates async tasks for deletion of routers.
         :param check_id:
@@ -200,13 +199,13 @@ class InfrastructureController:
             infrastructure_name=self.infrastructure.name,
             infrastructure_id=self.infrastructure.id,
         )
-        router_tasks = set()
+        router_tasks: set[asyncio.Task[None]] = set()
         for router in self.infrastructure.routers:
             if not check_id or (check_id and router.docker_id != ""):
                 router_tasks.add(asyncio.create_task(router.delete()))
         return router_tasks
 
-    async def delete_nodes(self, check_id: bool) -> set[asyncio.Task]:
+    async def delete_nodes(self, check_id: bool) -> set[asyncio.Task[None]]:
         """
         Creates async tasks for deletion of nodes.
         :param check_id:
@@ -217,19 +216,19 @@ class InfrastructureController:
             infrastructure_name=self.infrastructure.name,
             infrastructure_id=self.infrastructure.id,
         )
-        node_tasks = set()
+        node_tasks: set[asyncio.Task[None]] = set()
         for node in self.infrastructure.nodes:
             if not check_id or (check_id and node.docker_id != ""):
                 node_tasks.add(asyncio.create_task(node.delete()))
         return node_tasks
 
-    async def delete_volumes(self):
+    async def delete_volumes(self) -> set[asyncio.Task[None]]:
         logger.debug(
             "Deleting volumes",
             infrastructure_name=self.infrastructure.name,
             infrastructure_id=self.infrastructure.id,
         )
-        volume_tasks = set()
+        volume_tasks: set[asyncio.Task[None]] = set()
         for volume in self.infrastructure.volumes:
             volume_tasks.add(asyncio.create_task(volume.delete()))
         return volume_tasks
@@ -254,11 +253,12 @@ class InfrastructureController:
                 if interface.appliance.type == "router" and "management" not in network.name:
                     network.router_gateway = new_ip
 
-    async def change_names(self, container_names: set[str], network_names: set[str], volumes):
+    async def change_names(self, container_names: set[str], network_names: set[str], volumes: list[Volume]):
         """
         Change names in models for container name uniqueness.
         :param container_names: already used docker container names
         :param network_names: already used network container names
+        :param volumes: already used volumes
         :return:
         """
         logger.debug(
@@ -290,7 +290,7 @@ class InfrastructureController:
             if not volume.local:
                 volume.name = f"{self.infrastructure.name}-{volume.name}"
 
-    async def create_management_network(self, management_subnet):
+    async def create_management_network(self, management_subnet: IPNetwork):
         used_network_names = await util.get_network_names(docker.from_env())
 
         while (management_name := randomname.generate("adj/colors", "management")) in used_network_names:
@@ -316,7 +316,7 @@ class InfrastructureController:
 
         self.infrastructure.networks.append(management_network)
 
-    async def build_infrastructure(self, run) -> Instance:
+    async def build_infrastructure(self, run: Run) -> Instance:
         run_instance = Instance(
             run=run,
             infrastructure=self.infrastructure,
@@ -433,7 +433,7 @@ class InfrastructureController:
         return controller
 
     @staticmethod
-    async def build_infras(number_of_infrastructures: int, run: Run, db_session: AsyncSession):
+    async def build_infras(number_of_infrastructures: int, run: Run, db_session: AsyncSession) -> list[Instance]:
         """
         Builds docker infrastructure
         :param run: Run object
@@ -443,13 +443,13 @@ class InfrastructureController:
         """
         logger.info("Building infrastructures")
         client = docker.from_env()
-        controllers = []
+        controllers: list[InfrastructureController] = []
 
         # check if management (cryton) network exists
         if not settings.ignore_management_network:
             try:
                 client.networks.get(settings.management_network_name)
-            except docker.errors.NotFound:
+            except NotFound:
                 raise RuntimeError(
                     f"Management Network containing Cryton '{settings.management_network_name}' not found"
                 )
@@ -464,7 +464,7 @@ class InfrastructureController:
         existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
 
         used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
-        used_docker_networks = set()
+        used_docker_networks: set[IPNetwork] = set()
 
         # networks.list doesn't return same objects as networks.get
         docker_networks = await asyncio.to_thread(client.networks.list)
@@ -484,7 +484,7 @@ class InfrastructureController:
         await util.pull_images(client, parser.docker_images)
 
         used_infrastructure_names = {infra.name for infra in existing_infrastructures}
-        infrastructure_names = []
+        infrastructure_names: list[str] = []
 
         # TODO: only 75 colors, find alternative
         for i in range(number_of_infrastructures):
@@ -512,7 +512,7 @@ class InfrastructureController:
         }
 
         instances = await asyncio.gather(*build_infrastructure_tasks, return_exceptions=True)
-        exceptions = []
+        exceptions: list[Exception] = []
         if any(isinstance(task, Exception) for task in instances):
             logger.error(
                 "Deleting all instances due to exceptions in attempts to build all infrastructures",

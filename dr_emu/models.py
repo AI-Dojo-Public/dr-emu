@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import enum
-import re
 from abc import abstractmethod
-from typing import Optional
+from typing import Optional, Any, reveal_type
 
 import docker.types
-import requests
 from docker import DockerClient
 from docker.errors import NotFound, APIError
 from docker.models.containers import Container
 from docker.models.networks import Network as DockerNetwork
 from docker.types import IPAMPool, IPAMConfig
+from docker.models.resource import Collection, Model
 from netaddr import IPAddress, IPNetwork
 from sqlalchemy import ForeignKey, String, JSON, Column, Table
 from sqlalchemy.ext.asyncio import AsyncAttrs
@@ -26,7 +25,6 @@ from sqlalchemy_utils import force_instant_defaults, ScalarListType, JSONType
 
 from shared import constants
 from dr_emu.settings import settings
-from dr_emu.lib.exceptions import ContainerNotRunning, PackageNotAccessible
 from dr_emu.lib.logger import logger
 
 # TODO: add init methods with defaults to models instead of this?
@@ -44,8 +42,8 @@ class DockerMixin:
 
     docker_id: Mapped[str] = mapped_column()
     name: Mapped[str] = mapped_column()
-    _client: DockerClient = None
-    kwargs: Mapped[Optional[dict]] = mapped_column(JSONType, nullable=True)
+    _client: DockerClient | None = None
+    kwargs: Mapped[Optional[dict[Any, Any]]] = mapped_column(JSONType, nullable=True)
 
     @property
     def client(self):
@@ -63,7 +61,7 @@ class DockerMixin:
         pass
 
     @abstractmethod
-    async def get(self):
+    async def get(self) -> Model | Collection[Model]:
         """
         Get docker object
         :return: Docker object
@@ -85,9 +83,9 @@ class DockerContainerMixin(DockerMixin):
     """
 
     image: Mapped[str] = mapped_column()
-    environment: Mapped[dict] = mapped_column(JSONType, nullable=True)
+    environment: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=True)
     command: Mapped[str] = mapped_column(ScalarListType, nullable=True)
-    healthcheck: Mapped[dict] = mapped_column(JSONType, nullable=True)
+    healthcheck: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=True)
     detach: Mapped[bool] = mapped_column(default=True)
     tty: Mapped[bool] = mapped_column(default=True)
 
@@ -100,7 +98,7 @@ class DockerContainerMixin(DockerMixin):
         pass
 
     @abstractmethod
-    async def get(self):
+    async def get(self) -> Model | Collection[Model]:
         """
         Get docker object
         :return: Docker object
@@ -169,7 +167,7 @@ class Network(DockerMixin, Base):
 
         logger.debug("Creating network", ip=self._ipaddress, name=self.name)
         try:
-            self.docker_id = (
+            self.docker_id = (  # pyright: ignore [reportAttributeAccessIssue]
                 await asyncio.to_thread(
                     self.client.networks.create,
                     self.name,
@@ -257,7 +255,7 @@ class Appliance(DockerContainerMixin, Base):
         return self._cap_add.split(";")
 
     @cap_add.setter
-    def cap_add(self, cap_add: list):
+    def cap_add(self, cap_add: list[str]):
         self._cap_add = ";".join(str(item) for item in cap_add)
 
     async def get(self) -> Container:
@@ -286,12 +284,13 @@ class Appliance(DockerContainerMixin, Base):
         Create host configuration for docker container.
         :return: HostConfig object
         """
-        return await asyncio.to_thread(
-            self.client.api.create_host_config,
+        ksd = self.client.api.create_host_config(
             cap_add=self.cap_add,
             restart_policy={"Name": "always"},
-            **self.kwargs if self.kwargs else {},
-        )
+            **self.kwargs if self.kwargs else {})
+
+        reveal_type(ksd)
+        return ksd
 
     async def create(self):
         """
@@ -318,7 +317,7 @@ class Appliance(DockerContainerMixin, Base):
         )["Id"]
 
     @abstractmethod
-    async def configure(self, *args):
+    async def configure(self) -> None:
         pass
 
     async def start(self):
@@ -361,7 +360,7 @@ class Infrastructure(Base):
 
     @property
     def volumes(self) -> set["Volume"]:
-        volumes = set()
+        volumes: set["Volume"] = set()
         for node in self.nodes:
             for volume in node.volumes:
                 volumes.add(volume)
@@ -388,13 +387,13 @@ class Router(Appliance):
     }
 
     # TODO: refactor taking gateway from connections in cyst_infrastructure
-    async def configure(self, routers: list[Router]):
+    async def configure(self) -> None:
         """
         Configure ip routes, iptables on a router based on its type.
         :return:
         """
         config_instructions = ["ip route del default"]
-        await self._setup_routes(routers, config_instructions)
+        await self._setup_routes(self.infrastructure.routers, config_instructions)
         await self._setup_default_gateway(config_instructions)
         await self._setup_firewall(config_instructions)
 
@@ -425,12 +424,12 @@ class Router(Appliance):
                     f"iptables -A FORWARD -s {fw_rule.src_net.ipaddress} -d {fw_rule.dst_net.ipaddress} -j DROP",
                 ]
 
-    async def _setup_routes(self, routers: list[Router], config_instructions):
-        routes_config = []
+    async def _setup_routes(self, routers: list[Router], config_instructions: list[str]):
+        routes_config: list[dict[str, Any]] = []
         for router in routers:
             if self == router:
                 continue
-            routes = {"via": "", "to": []}
+            routes: dict[str, Any] = {"via": "", "to": []}
             for interface in router.interfaces:
                 if interface.network.network_type == constants.NETWORK_TYPE_MANAGEMENT:
                     routes["via"] = interface.ipaddress
@@ -450,7 +449,7 @@ class Router(Appliance):
         """
         # Filtering instances with unique values of attribute "x"
         unique_networks = {self.interfaces[0].network}
-        unique_interfaces = []
+        unique_interfaces: list[Interface] = []
 
         for interface in self.interfaces[1:]:
             if interface.network not in unique_networks:
@@ -509,8 +508,8 @@ class Node(Appliance):
     services: Mapped[list["Service"]] = relationship(back_populates="parent_node", cascade="all, delete-orphan")
     ipc_mode: Mapped[str] = mapped_column(default="shareable", nullable=True)
     infrastructure: Mapped["Infrastructure"] = relationship(back_populates="nodes")
-    depends_on: Mapped[dict] = mapped_column(JSONType, default={})
-    config_instructions: Mapped[list[str]] = []
+    depends_on: Mapped[dict[str, str]] = mapped_column(JSONType, default={})
+    config_instructions: list[str] | list[list[str]] = []
     __mapper_args__ = {
         "polymorphic_identity": "node",
     }
@@ -520,7 +519,7 @@ class Node(Appliance):
         Create host configuration for docker container.
         :return:
         """
-        volumes = []
+        volumes: list[str] = []
         for volume in self.volumes:
             volumes.append(f"{volume.name}:{volume.bind}")
 
@@ -554,7 +553,7 @@ class Node(Appliance):
         :return:
         """
         await super().create()
-        create_service_tasks = await self.create_services()
+        create_service_tasks: set[asyncio.Task[Any]] = await self.create_services()
         await asyncio.gather(*create_service_tasks)
 
     async def start(self):
@@ -571,32 +570,32 @@ class Node(Appliance):
         start_service_tasks = await self.start_services()
         await asyncio.gather(*start_service_tasks)
 
-    async def create_services(self) -> set[asyncio.Task]:
+    async def create_services(self) -> set[asyncio.Task[Any]]:
         """
         Create services in form of docker containers, that should be connected to this Node.
         :return:
         """
         return {asyncio.create_task(service.create()) for service in self.services}
 
-    async def start_services(self) -> set[asyncio.Task]:
+    async def start_services(self) -> set[asyncio.Task[None]]:
         """
         Create services in form of docker containers, that should be connected to this Node.
         :return:
         """
         return {asyncio.create_task(service.start()) for service in self.services}
 
-    async def delete(self):
+    async def delete(self) -> None:
         """
         Stop and delete docker container representing a Node
         :return:
         """
 
-        delete_services_tasks = await self.delete_services()
+        delete_services_tasks: set[asyncio.Task[None]] = await self.delete_services()
         await asyncio.gather(*delete_services_tasks)
 
         await super().delete()
 
-    async def delete_services(self) -> set[asyncio.Task]:
+    async def delete_services(self) -> set[asyncio.Task[None]]:
         """
         Delete docker containers representing services connected to this Node.
         :return:
@@ -651,8 +650,8 @@ class Dns(Node):
 services_volumes = Table(
     "services_volumes",
     Base.metadata,
-    Column("service_id", ForeignKey("service.id"), primary_key=True),
-    Column("volume_id", ForeignKey("volume.id"), primary_key=True),
+    Column("service_id", ForeignKey("service.id"), primary_key=True),  # type: ignore
+    Column("volume_id", ForeignKey("volume.id"), primary_key=True),  # type: ignore
 )
 
 
@@ -685,20 +684,20 @@ class Service(DockerContainerMixin, Base):
         """
         return await asyncio.to_thread(self.client.containers.get, self.docker_id)
 
-    async def create(self):
+    async def create(self) -> None:
         """
         Create docker container representing a Service.
         :return:
         """
         kwargs = self.kwargs if self.kwargs is not None else {}
-        volumes = []
+        volumes: list[str] = []
         for volume in self.volumes:
             volumes.append(f"{volume.name}:{volume.bind}")
         container = await asyncio.to_thread(
             self.client.containers.create,
             image=self.image,
             name=self.name,
-            detach=self.detach,
+            detach=self.detach,  # type: ignore
             network_mode=f"container:{self.parent_node.name}",
             pid_mode=f"container:{self.parent_node.name}",
             ipc_mode=f"container:{self.parent_node.name}",
@@ -734,12 +733,12 @@ class Service(DockerContainerMixin, Base):
         except NotFound:
             pass
 
-    async def wait_for_dependency(self, timeout=35) -> bool:
+    async def wait_for_dependency(self, timeout: int = 35) -> bool:
         async def check_dependency(dependency_model: DependsOn):
             count = 0
             while count < timeout:
                 try:
-                    container_info = await asyncio.to_thread(
+                    container_info: dict[str, Any] = await asyncio.to_thread(
                         self.client.api.inspect_container,
                         dependency_model.dependency.name,
                     )
@@ -749,7 +748,7 @@ class Service(DockerContainerMixin, Base):
                     count += 1
                     continue
 
-                if dependency_model.state == constants.SERVICE_HEALTHY:
+                if dependency_model.state == constants.SERVICE_HEALTHY:  # type: ignore
                     if container_info["State"]["Status"] != "running":
                         await asyncio.sleep(1)
                         count += 1
@@ -815,7 +814,7 @@ class DependsOn(Base):
 class Template(Base):
     __tablename__ = "template"
     name: Mapped[str] = mapped_column()
-    description: Mapped[dict] = mapped_column(JSON)
+    description: Mapped[str] = mapped_column(JSON)
     runs: Mapped[list["Run"]] = relationship(back_populates="template")
 
 
