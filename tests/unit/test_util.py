@@ -1,7 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, patch, Mock
 import docker.errors
-from dr_emu.lib.util import pull_images, pull_image  # Adjust the import based on your module structure
+from pytest_mock import MockerFixture
+from dr_emu.lib.util import pull_image  # Adjust the import based on your module structure
 
 # Mock logger to avoid unnecessary logging during tests
 logger = AsyncMock()
@@ -29,7 +30,7 @@ async def test_pull_nonexistant():
 
 
 @pytest.mark.asyncio
-async def test_pull_images_server_timeout(mocker):
+async def test_pull_images_server_timeout(mocker: MockerFixture):
     mocker.patch("asyncio.sleep")
     docker_client = Mock()
     docker_client.images.get.side_effect = docker.errors.ImageNotFound("image1")

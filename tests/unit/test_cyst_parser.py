@@ -79,11 +79,11 @@ class TestCYSTParser:
     path = "parser.cyst_parser"
 
     @pytest.fixture(autouse=True)
-    def parser(self, mocker):
+    def parser(self, mocker: MockerFixture):
         mocker.patch("parser.cyst_parser.CYSTParser._load_infrastructure_description")
         self.parser = CYSTParser("")
 
-    async def test_find_network(self, network):
+    async def test_find_network(self, network: Mock):
         self.parser.networks.append(network)
         found_network = await self.parser._find_network(IPNetwork("127.0.0.0/24"))
         assert found_network == network
@@ -91,10 +91,10 @@ class TestCYSTParser:
     async def test_get_service_configuration(self):
         pass
 
-    async def test_parse_networks(self, mocker, perimeter_router, internal_router):
+    async def test_parse_networks(self, mocker: MockerFixture, perimeter_router: Mock, internal_router):
         network_names = ["test1", "test2"]
         mocker.patch(f"{self.path}.randomname.generate", side_effect=network_names)
-        cyst_routers = [
+        cyst_routers: list[Mock] = [
             perimeter_router,
             internal_router,
         ]
@@ -152,7 +152,7 @@ class TestCYSTParser:
         "router, router_type",
         [("internal_router", "internal"), ("perimeter_router", "perimeter")],
     )
-    async def test_parse_routers(self, mocker: MockerFixture, router, router_type, request):
+    async def test_parse_routers(self, mocker: MockerFixture, router: Mock, router_type: Mock, request):
         fw_rule = mocker.patch(f"{self.path}.FirewallRule")
         interface = mocker.patch(f"{self.path}.Interface")
         find_network_mock = mocker.patch(f"{self.path}.CYSTParser._find_network")
@@ -171,7 +171,7 @@ class TestCYSTParser:
         ]
         find_network_mock.assert_has_awaits(calls)
 
-    async def test_parse(self, mocker: MockerFixture, internal_router, perimeter_router, node):
+    async def test_parse(self, mocker: MockerFixture, internal_router: Mock, perimeter_router: Mock, node: Mock):
         parse_networks_mock = mocker.patch(f"{self.path}.CYSTParser._parse_networks")
         parse_routers_mock = mocker.patch(f"{self.path}.CYSTParser._parse_routers")
         parse_nodes_mock = mocker.patch(f"{self.path}.CYSTParser._parse_nodes")

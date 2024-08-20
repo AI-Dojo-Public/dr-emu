@@ -1,6 +1,8 @@
 from unittest.mock import call, Mock, MagicMock
 import pytest
-from unittest.mock import AsyncMock, Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call
+
+from pytest_mock import MockerFixture
 
 from shared import constants
 from dr_emu.controllers.infrastructure import InfrastructureController
@@ -8,7 +10,7 @@ from netaddr import IPNetwork, IPAddress
 
 import asyncio
 
-from dr_emu.models import Infrastructure, Network, Interface, Router
+from dr_emu.models import Infrastructure, Network, Interface
 
 
 @pytest.mark.asyncio
@@ -23,7 +25,7 @@ class TestInfrastructureController:
         return interface
 
     @pytest.fixture()
-    def network(self, interface):
+    def network(self, interface: Mock):
         network = Mock(spec=Network)
         network.configure_mock(
             interfaces=[interface], router_gateway=IPAddress("127.0.0.1"), ipaddress=IPNetwork("127.0.0.0/24")
@@ -32,17 +34,17 @@ class TestInfrastructureController:
         return network
 
     @pytest.fixture()
-    def infrastructure(self, network):
+    def infrastructure(self, network: Mock):
         infra = Mock(spec=Infrastructure)
         infra.configure_mock(name="test_infra", networks=[network], volumes={AsyncMock()})
         return infra
 
     @pytest.fixture(autouse=True)
-    def controller(self, mocker, infrastructure):
+    def controller(self, mocker: MockerFixture, infrastructure: Mock):
         mocker.patch(f"{self.file_path}.docker.from_env")
         self.controller = InfrastructureController(infrastructure=infrastructure)
 
-    async def test_start(self, mocker):
+    async def test_start(self, mocker: MockerFixture):
         asyncio_gather_spy = mocker.spy(asyncio, "gather")
         create_networks_mock = mocker.patch(f"{self.controller_path}.create_networks")
         create_nodes_mock = mocker.patch(f"{self.controller_path}.create_nodes")
@@ -61,7 +63,7 @@ class TestInfrastructureController:
         configure_appliances_mock.assert_awaited_once()
         assert asyncio_gather_spy.call_count == 5
 
-    async def test_stop(self, mocker):
+    async def test_stop(self, mocker: MockerFixture):
         asyncio_gather_spy = mocker.spy(asyncio, "gather")
         mocker.patch(f"{self.controller_path}.delete_nodes", return_value=set(AsyncMock()))
         mocker.patch(f"{self.controller_path}.delete_volumes", return_value=set(AsyncMock()))
@@ -72,7 +74,7 @@ class TestInfrastructureController:
 
         assert asyncio_gather_spy.call_count == 3
 
-    async def test_change_ipaddresses(self, infrastructure, network):
+    async def test_change_ipaddresses(self, infrastructure: Mock, network: Mock):
         network.name = "testing"
         await self.controller.change_ipaddresses([IPNetwork("127.0.1.0/24")])
         interface = network.interfaces[0]
@@ -80,7 +82,7 @@ class TestInfrastructureController:
         assert interface.ipaddress == IPAddress("127.0.1.1")
         assert network.router_gateway == IPAddress("127.0.1.1")
 
-    async def test_create_management_network(self, mocker):
+    async def test_create_management_network(self, mocker: MockerFixture):
         network_ip = IPNetwork("127.0.0.0/24")
         perimeter_router_mock = Mock(router_type=constants.ROUTER_TYPE_PERIMETER, interfaces=[])
         internal_router_mock = Mock(router_type=constants.ROUTER_TYPE_INTERNAL, interfaces=[])
@@ -114,7 +116,7 @@ class TestInfrastructureController:
         assert len(perimeter_router_mock.interfaces) == 1
         assert len(internal_router_mock.interfaces) == 1
 
-    async def test_prepare_controller_for_infra_creation(self, infrastructure, mocker, network):
+    async def test_prepare_controller_for_infra_creation(self, infrastructure: Mock, mocker: MockerFixture, network):
         available_networks = [IPNetwork("127.0.1.0/24")]
         infra_controller_mock = mocker.patch(self.controller_path, return_value=AsyncMock()).return_value
         infrastructure.networks = [network]
@@ -130,7 +132,7 @@ class TestInfrastructureController:
         create_management_network_mock.assert_awaited_once_with(IPNetwork("127.0.1.0/24"))
         assert infra_controller == infra_controller_mock
 
-    async def test_create_controller(self, mocker):
+    async def test_create_controller(self, mocker: MockerFixture):
         cyst_parser_mock = AsyncMock()
         networks = [Mock()]
         routers = [Mock()]
@@ -186,7 +188,7 @@ class TestInfrastructureController:
         docker_client_mock.networks.get.return_value = Mock(attrs={"IPAM": {"Config": [{"Subnet": "127.1.0.0/16"}]}})
         return docker_client_mock
 
-    async def test_build_infras(self, mocker, docker_client_mock):
+    async def test_build_infras(self, mocker: MockerFixture, docker_client_mock: Mock):
         available_infra_supernets = [
             IPNetwork("127.1.0.0/16"),
             IPNetwork("127.2.1.0/16"),
@@ -245,7 +247,7 @@ class TestInfrastructureController:
         ]
         create_controller_mock.assert_has_calls(calls)
 
-    async def test_build_infrastructure_exception(self, mocker, infrastructure):
+    async def test_build_infrastructure_exception(self, mocker: MockerFixture, infrastructure: Mock):
         instance_mock = mocker.patch(f"{self.file_path}.Instance")
         run_mock = Mock()
         start_mock = mocker.patch.object(self.controller, "start", side_effect=Exception)

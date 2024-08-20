@@ -6,6 +6,8 @@ from netaddr import IPNetwork
 
 from dr_emu.lib.logger import logger
 
+used_infra_networks: set[IPNetwork] = set()
+
 
 # TODO: Needs testing, also, never used
 # async def depends_on(client: DockerClient, dependencies: dict[str, str], timeout: int = 15) -> bool:
@@ -95,6 +97,7 @@ async def get_available_networks_for_infras(
     :return: list of available Networks, that can be used during infrastructure building.
     """
     logger.debug("Getting available IP addressed for networks")
+    used_infra_supernets.update(used_infra_networks)
     available_networks: list[IPNetwork] = []
     # TODO: what if I run out of ip address space?
     infrastructure_subnets = IPNetwork("10.0.0.0/8").subnet(16)
@@ -106,6 +109,7 @@ async def get_available_networks_for_infras(
             break
 
     logger.debug("Completed getting available IP addressed for infrastructures", available_subnets=available_networks)
+    used_infra_networks.update(available_networks)
     return available_networks
 
 

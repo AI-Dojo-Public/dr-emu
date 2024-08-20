@@ -441,8 +441,26 @@ class InfrastructureController:
         :param db_session: Async database session
         :return:
         """
-        logger.info("Building infrastructures")
+
         client = docker.from_env()
+        existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
+        used_docker_networks: set[IPNetwork] = set()
+        # networks.list doesn't return same objects as networks.get
+        docker_networks = await asyncio.to_thread(client.networks.list)
+        for docker_network in docker_networks:
+            if docker_network.name in ["none", "host"]:
+                continue
+            used_docker_networks.add(
+                IPNetwork(client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"])
+            )
+
+        used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
+        available_infrastructure_supernets = await util.get_available_networks_for_infras(
+            used_docker_networks,
+            number_of_infrastructures,
+            used_infrastructure_supernets,
+        )
+        logger.info("Building infrastructures")
         controllers: list[InfrastructureController] = []
 
         # check if management (cryton) network exists
@@ -460,26 +478,6 @@ class InfrastructureController:
         template = await template_controller.get_template(run.template_id, db_session)
         parser = CYSTParser(template.description)
         await parser.parse()
-
-        existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
-
-        used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
-        used_docker_networks: set[IPNetwork] = set()
-
-        # networks.list doesn't return same objects as networks.get
-        docker_networks = await asyncio.to_thread(client.networks.list)
-        for docker_network in docker_networks:
-            if docker_network.name in ["none", "host"]:
-                continue
-            used_docker_networks.add(
-                IPNetwork(client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"])
-            )
-
-        available_infrastructure_supernets = await util.get_available_networks_for_infras(
-            used_docker_networks,
-            number_of_infrastructures,
-            used_infrastructure_supernets,
-        )
 
         await util.pull_images(client, parser.docker_images)
 
@@ -528,6 +526,7 @@ class InfrastructureController:
             raise ExceptionGroup("Failed to build infrastructures", exceptions)
 
         return instances
+
 
     @staticmethod
     async def stop_infra(infrastructure: Infrastructure):
