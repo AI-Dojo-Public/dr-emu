@@ -25,7 +25,9 @@ from dr_emu.models import (
     Attacker,
     Dns,
     ServiceAttacker,
-    Volume
+    Volume,
+    Service,
+    Router
 )
 
 from parser.cyst_parser import CYSTParser
@@ -253,6 +255,14 @@ class InfrastructureController:
                 if interface.appliance.type == "router" and "management" not in network.name:
                     network.router_gateway = new_ip
 
+    @staticmethod
+    async def update_environment_variables(containers: list[Service | Node | Router], name_pairs: dict[str, str]) -> None:
+        for container in containers:
+            if container.environment:
+                for k, v in container.environment.items():
+                    if v in name_pairs:
+                        container.environment[k] = name_pairs[v]
+
     async def change_names(self, container_names: set[str], network_names: set[str], volumes: list[Volume]):
         """
         Change names in models for container name uniqueness.
@@ -265,7 +275,8 @@ class InfrastructureController:
             "Changing docker names to match the Infrastructure",
             infrastructure_name=self.infrastructure.name,
         )
-        containers = [*self.infrastructure.nodes, *self.infrastructure.routers]
+        containers: list[Service | Node | Router] = [*self.infrastructure.nodes, *self.infrastructure.routers]
+        name_pairs: dict[str, str] = {}
         for node in self.infrastructure.nodes:
             containers += node.services
 
@@ -274,10 +285,12 @@ class InfrastructureController:
                 if (new_name := f"{self.infrastructure.name}-{container.name}") in container_names:
                     # if by some miracle container with infra color + container_name already exists on a system
                     new_name += "-dr-emu"
+                name_pairs[container.name] = new_name
                 container.name = new_name
                 container_names.add(new_name)
             else:
                 container_names.add(container.name)
+        await self.update_environment_variables(containers, name_pairs)
         for network in self.infrastructure.networks:
             if network.name in network_names:
                 if (new_name := f"{self.infrastructure.name}-{network.name}") in network_names:
