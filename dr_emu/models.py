@@ -505,6 +505,7 @@ class Node(Appliance):
     __tablename__ = "node"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
+    _service_tags = mapped_column("service_tags", JSONType, default=[])
     services: Mapped[list["Service"]] = relationship(back_populates="parent_node", cascade="all, delete-orphan")
     ipc_mode: Mapped[str] = mapped_column(default="shareable", nullable=True)
     infrastructure: Mapped["Infrastructure"] = relationship(back_populates="nodes")
@@ -513,6 +514,18 @@ class Node(Appliance):
     __mapper_args__ = {
         "polymorphic_identity": "node",
     }
+
+    @property
+    def service_tags(self):
+        return self._service_tags
+
+    @service_tags.setter
+    def service_tags(self, service_tags: list[dict[str, Any]]):
+        for service_tag in service_tags:
+            for k, v in service_tag.items():
+                if isinstance(v, set):
+                    service_tag[k] = list(v)
+        self._service_tags = service_tags
 
     async def _create_host_config(self) -> docker.types.HostConfig:
         """
@@ -647,6 +660,12 @@ class Dns(Node):
     }
 
 
+# class Firehole(Node):
+#     __mapper_args__ = {
+#         "polymorphic_identity": "firehole",
+#     }
+
+
 services_volumes = Table(
     "services_volumes",
     Base.metadata,
@@ -670,10 +689,10 @@ class Service(DockerContainerMixin, Base):
         cascade="all, delete-orphan",
     )
     volumes: Mapped[list["Volume"]] = relationship(secondary=services_volumes, back_populates="services")
-    type: Mapped[str]
+    model_type: Mapped[str]
 
     __mapper_args__ = {
-        "polymorphic_on": "type",
+        "polymorphic_on": "model_type",
         "polymorphic_identity": "service",
     }
 
@@ -788,7 +807,7 @@ class Service(DockerContainerMixin, Base):
 
 class ServiceAttacker(Service):
     __mapper_args__ = {
-        "polymorphic_on": "type",
+        "polymorphic_on": "model_type",
         "polymorphic_identity": "attacker",
     }
 

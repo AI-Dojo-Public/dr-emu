@@ -202,6 +202,8 @@ class TestInfrastructureController:
         mocker.patch(f"{self.file_path}.docker.from_env", return_value=docker_client_mock)
         get_container_names_mock = mocker.patch(f"{self.file_path}.util.get_container_names")
         get_network_names_mock = mocker.patch(f"{self.file_path}.util.get_network_names")
+        used_docker_container_names_mock = mocker.patch(f"{self.file_path}.util.used_docker_container_names")
+        used_docker_network_names_mock = mocker.patch(f"{self.file_path}.util.used_docker_network_names")
         get_available_networks_for_infras_mock = mocker.patch(
             f"{self.file_path}.util.get_available_networks_for_infras",
             return_value=available_infra_supernets,
@@ -232,16 +234,16 @@ class TestInfrastructureController:
                 available_infra_supernets[0],
                 used_docker_networks,
                 cyst_parser_mock.return_value,
-                get_container_names_mock.return_value,
-                get_network_names_mock.return_value,
+                used_docker_container_names_mock,
+                used_docker_network_names_mock,
                 "first_infra",
             ),
             call(
                 available_infra_supernets[1],
                 used_docker_networks,
                 cyst_parser_mock.return_value,
-                get_container_names_mock.return_value,
-                get_network_names_mock.return_value,
+                used_docker_container_names_mock,
+                used_docker_network_names_mock,
                 "second_infra",
             ),
         ]

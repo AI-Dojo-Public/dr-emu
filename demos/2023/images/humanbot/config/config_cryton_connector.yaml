@@ -1,7 +1,0 @@
----
-
-core_base_url: "http://cryton-core:80"
-available_worker_names:
-  - "client3"
-# TODO: add even the second bot???
-#  - "developer"

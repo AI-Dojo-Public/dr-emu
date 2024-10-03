@@ -1,5 +1,7 @@
 from enum import Enum
 from typing import Any
+from packaging.version import Version
+
 
 from netaddr import IPNetwork, IPAddress
 from dataclasses import dataclass, field
@@ -9,7 +11,8 @@ from dr_emu.models import (
     Attacker as DockerAttacker,
     Dns as DockerDns,
 )
-from parser.lib.containers import Container
+from parser.lib.containers import ServiceTag
+from parser.lib.containers import NodeContainer, ServiceContainer
 
 
 @dataclass
@@ -55,18 +58,18 @@ class Router:
     name: str
     type: str
     interfaces: list[Interface]
-    container: Container
+    container: NodeContainer
     firewall_rules: list[FirewallRule]
 
 
 @dataclass
 class Service:
     """
-    Serializable alternative for DB model.
+    Serializable alternative for DB model. Represents actual container with service paired to node.
     """
 
     name: str
-    container: Container
+    container: ServiceContainer
     depends_on: list["Service"] = field(default_factory=list)
 
 
@@ -87,6 +90,7 @@ class Node:
 
     name: str
     interfaces: list[Interface]
-    container: Container
-    services: list[Service]
+    container: NodeContainer
+    service_tags: list[ServiceTag]  # services to be installed in a combined node image
+    services: list[Service]  # service containers
     type: NodeType

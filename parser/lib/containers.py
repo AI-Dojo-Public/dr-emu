@@ -9,7 +9,7 @@ def sec_to_nano(seconds: int) -> int:
     :param seconds: Number of seconds
     :return: Number of nanoseconds
     """
-    return seconds * 10**9
+    return seconds * 10 ** 9
 
 
 @dataclass
@@ -30,8 +30,10 @@ class ServiceTag:
     Tag used to match a single service and possibly a version.
     """
 
-    name: str
+    type: str
     version: str = ""
+    exploits: set[str] = field(default_factory=set)
+    depends_on: set["ServiceTag"] = field(default_factory=set)
 
 
 @dataclass
@@ -52,41 +54,75 @@ class Container:
     """
 
     image: str
-    services: set[ServiceTag]
     description: str = ""
     entrypoint: list[str] = field(default_factory=list)
     command: list[str] = field(default_factory=list)
     _healthcheck: Healthcheck | None = None
     volumes: list[Volume] = field(default_factory=list)
     environment: dict[str, Any] = field(default_factory=dict)
-    requires: set[ServiceTag] = field(default_factory=set)
+    kwargs: dict[str, Any] = field(default_factory=dict)
+    requires: list[ServiceTag] = field(default_factory=list)
     can_be_combined: bool = False
     is_attacker: bool = False
-    kwargs: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def healthcheck(self) -> dict:
+    def healthcheck(self) -> dict[str, str]:
         return asdict(self._healthcheck) if self._healthcheck else dict()
 
 
+@dataclass
+class ServiceContainer(Container):
+    tag: ServiceTag = ServiceTag("")
+
+
+@dataclass
+class NodeContainer(Container):
+    services: list[ServiceTag] = field(default_factory=list)
+
+
 # TODO: unique variables accross infras under a single run
-DEFAULT = Container(
-    "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/node:latest", {ServiceTag("bash"), ServiceTag("sh")}
+DEFAULT = NodeContainer(
+    "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/node:latest", services=[ServiceTag("bash"), ServiceTag("sh")]
 )
-ROUTER = Container("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/router:latest", {ServiceTag("iptables")})
-DNS_SERVER = Container(
+FIREHOLE = NodeContainer(
+    "registry.gitlab.ics.muni.cz:443/ai-dojo/firehole", services=[ServiceTag("bash"), ServiceTag("sh")]
+)
+ROUTER = NodeContainer("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/router:latest",
+                       services=[ServiceTag("iptables")])
+DNS_SERVER = NodeContainer(
     "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/node:latest",
-    {ServiceTag("bash"), ServiceTag("sh"), ServiceTag("coredns", "1.11.1")},
+    services=[ServiceTag("bash"), ServiceTag("sh"), ServiceTag("coredns", "1.11.1")],
     volumes=[Volume("core-dns", "/etc/coredns")],
 )
 
-DATABASE = [
-    DEFAULT,
-    ROUTER,
-    DNS_SERVER,
-    Container(
-        "registry.gitlab.ics.muni.cz:443/cryton/cryton/worker:latest",
-        {ServiceTag("scripted_actor")},
+SERVICE_CONTAINERS = [
+    ServiceContainer(
+        "sadparad1se/metasploit-framework:rpc",
+        tag=ServiceTag("metasploit", "0.1.0"),
+        environment={
+            "METASPLOIT_RPC_USERNAME": "cryton",
+            "METASPLOIT_RPC_PASSWORD": "cryton",
+        },
+        can_be_combined=True,
+        is_attacker=True,
+    ),
+    ServiceContainer(
+        "bcsecurity/empire:v4.10.0",
+        tag=ServiceTag("empire", "4.10.0"),
+        command=["server", "--username", "cryton", "--password", "cryton"],
+        can_be_combined=True,
+        is_attacker=True,
+    ),
+    ServiceContainer(
+        "coredns/coredns",
+        tag=ServiceTag("coredns", "1.11.1"),
+        volumes=[Volume("core-dns", "/etc/coredns")],
+        command=["-conf", "/etc/coredns/Corefile"],
+        kwargs={"restart_policy": {"Name": "on-failure"}},
+    ),
+    ServiceContainer(
+        "registry.gitlab.ics.muni.cz:443/cryton/cryton/worker:2",
+        tag=ServiceTag("scripted_actor"),
         environment={
             "CRYTON_WORKER_NAME": "attacker",
             "CRYTON_WORKER_DEBUG": True,
@@ -106,12 +142,17 @@ DATABASE = [
             "CRYTON_WORKER_EMPIRE_PASSWORD": "cryton",
             "CRYTON_WORKER_MAX_RETRIES": 3,
         },
-        can_be_combined=True,
         is_attacker=True,
     ),
-    Container(
-        "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/web-server:latest",
-        {ServiceTag("wordpress", "6.1.1")},
+]
+CONTAINER_DB = [
+    DEFAULT,
+    ROUTER,
+    DNS_SERVER,
+    FIREHOLE,
+    NodeContainer(
+        "registry.gitlab.ics.muni.cz:443/ai-dojo/cif/base_wordpress_firehole",
+        services=[ServiceTag("wordpress", "6.1.1")],
         _healthcheck=Healthcheck(
             [
                 "CMD-SHELL",
@@ -123,18 +164,16 @@ DATABASE = [
         ),
         environment={
             "WORDPRESS_DB_HOST": "wordpress_db_node",
-            "WORDPRESS_DB_USER": "cdri",
-            "WORDPRESS_DB_PASSWORD": "cdri",
-            "WORDPRESS_DB_NAME": "cdri",
-            "WP_HOSTNAME": "wordpress_node",
-            "WP_ADMIN_NAME": "wordpress",
-            "WP_ADMIN_PASSWORD": "wordpress",
+            "WORDPRESS_DB_USER": "wordpress",
+            "WORDPRESS_DB_PASSWORD": "wordpress",
+            "WORDPRESS_ADMIN_NAME": "wordpress",
+            "WORDPRESS_ADMIN_PASSWORD": "wordpress",
         },
-        requires={ServiceTag("mysql", "8.0.31")},
+        requires=[ServiceTag("mysql", "8.0.31")],
     ),
-    Container(
-        "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/database-server:latest",
-        {ServiceTag("mysql", "8.0.31")},
+    NodeContainer(
+        "registry.gitlab.ics.muni.cz:443/ai-dojo/cif/base_mysql",
+        services=[ServiceTag("mysql", "8.0.31")],
         _healthcheck=Healthcheck(
             test=[
                 "CMD-SHELL",
@@ -145,89 +184,85 @@ DATABASE = [
             retries=3,
         ),
         environment={
-            "MYSQL_ROOT_PASSWORD": "cdri",
-            "MYSQL_DATABASE": "cdri",
-            "MYSQL_USER": "cdri",
-            "MYSQL_PASSWORD": "cdri",
+            "MYSQL_ROOT_PASSWORD": "wordpress",
+            "MYSQL_DATABASE": "wordpress",
+            "MYSQL_USER": "wordpress",
+            "MYSQL_PASSWORD": "wordpress",
         },
     ),
-    Container(
-        "sadparad1se/metasploit-framework:rpc",
-        {ServiceTag("metasploit", "0.1.0")},
-        environment={
-            "METASPLOIT_RPC_USERNAME": "cryton",
-            "METASPLOIT_RPC_PASSWORD": "cryton",
-        },
-        can_be_combined=True,
+    NodeContainer("registry.gitlab.ics.muni.cz:443/ai-dojo/cif/base_ftp", services=[ServiceTag("vsftpd", "2.3.4")]),
+    NodeContainer(
+        "registry.gitlab.ics.muni.cz:443/ai-dojo/cif/base_ssh_client-workstation_client-developer",
+        services=[ServiceTag("ssh", "5.1.4"), ServiceTag("bash", "8.1.0")],
+        environment={},
     ),
-    Container(
-        "bcsecurity/empire:v4.10.0",
-        {ServiceTag("empire", "4.10.0")},
-        command=["server", "--username", "cryton", "--password", "cryton"],
-        can_be_combined=True,
+    NodeContainer(
+        "registry.gitlab.ics.muni.cz:443/ai-dojo/cif/base_client-workstation_client-phished",
+        services=[ServiceTag("bash", "8.1.0")],
+        environment={},
     ),
-    Container("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/ftp-server:latest", {ServiceTag("vsftpd", "2.3.4")}),
-    Container(
-        "coredns/coredns",
-        {ServiceTag("coredns", "1.11.1")},
-        volumes=[Volume("core-dns", "/etc/coredns")],
-        command=["-conf", "/etc/coredns/Corefile"],
-        kwargs={"restart_policy": {"Name": "on-failure"}},
-    ),
-    Container(
-        "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/workstation:developer",
-        {ServiceTag("ssh", "5.1.4"), ServiceTag("bash", "8.1.0")},
-        environment={"CRYTON_WORKER_RABBIT_HOST": "cryton-rabbit", "CRYTON_WORKER_NAME": "developer"},
-    ),
-    Container(
-        "registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/workstation:phished",
-        {ServiceTag("bash", "8.1.0")},
-        # TODO: worker name should be unique
-        environment={"CRYTON_WORKER_RABBIT_HOST": "cryton-rabbit", "CRYTON_WORKER_NAME": "client"},
-    ),
-    Container("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/mail-server:latest", {ServiceTag("mail", "8.1.0")}),
-    Container("registry.gitlab.ics.muni.cz:443/ai-dojo/dr-emu/chat-server:latest", {ServiceTag("chat", "0.1.0")}),
+    NodeContainer("registry.gitlab.ics.muni.cz:443/ai-dojo/cif/base",
+                  services=[ServiceTag("mail", "8.1.0")]),
+    NodeContainer("registry.gitlab.ics.muni.cz:443/ai-dojo/cif/base_chat",
+                  services=[ServiceTag("chat", "0.1.0")]),
 ]
 
+SERVICE_PORTS = {
+    "mysql": ("MYSQL_PORT", 3306),
+    "vsftpd": ("FTP_PORT", 21)
+}
 
-def match_container(node_services: set[ServiceTag]) -> list[Container]:
+
+async def match_service_container(node_services: list[ServiceTag]) -> list[ServiceContainer | None]:
     """
     Matches a set of node services with a predefined database of containers.
     If the rules aren't satisfied, it returns the default container.
     :param node_services: Set node services to match against the database of containers with services.
     :return: Matched containers
     """
-    closest_match: Container | None = None
-    closest_match_redundant_services: set[ServiceTag] = set()
-    partial_matches: list[Container] = list()
-    partial_matches_services: set[ServiceTag] = set()
+    exact_matches: list[ServiceContainer | None] = []
+    partial_matches: list[ServiceContainer | None] = []
 
-    for db_container in DATABASE:
+    for service_container in SERVICE_CONTAINERS:
+        for service_tag in node_services:
+            if service_tag == service_container.tag:
+                exact_matches.append(service_container)
+            if service_tag.type.lower() == service_container.tag.type.lower():
+                partial_matches.append(service_container)
+
+    if exact_matches:
+        return exact_matches
+    elif partial_matches:
+        return partial_matches
+    else:
+        logger.debug("No service container with the required servie tag was found in the SERVICE CONTAINER DATABASE")
+        return []
+
+
+async def match_node_container(node_services: list[ServiceTag]) -> NodeContainer:
+    """
+    Matches a set of node services with a predefined database of containers.
+    If the rules aren't satisfied, it returns the default container.
+    :param node_services: Set node services to match against the database of containers with services.
+    :return: Matched containers
+    """
+    closest_match: NodeContainer | None = None
+    closest_match_redundant_services: list[ServiceTag] = []
+
+    for db_container in CONTAINER_DB:
         # Check if the required services are all available in the container
-        if not node_services.difference(db_container.services):
-            redundant_db_container_services = db_container.services.difference(node_services)
+        if all(service in db_container.services for service in node_services):
+            redundant_db_container_services = [service for service in db_container.services if
+                                               service not in node_services]
             if not redundant_db_container_services:  # An exact match
-                return [db_container]
+                return db_container
 
             # If this container has fewer redundant services than the current closest match, update the closest match
-            if closest_match is None or redundant_db_container_services < closest_match_redundant_services:
+            if closest_match is None or len(redundant_db_container_services) < len(closest_match_redundant_services):
                 closest_match, closest_match_redundant_services = db_container, redundant_db_container_services
 
-        # Check if at least one of the required services is in the container
-        if (
-            db_container.can_be_combined
-            and node_services.difference(db_container.services) < node_services
-            and db_container.services.difference(partial_matches_services)
-        ):
-            partial_matches.append(db_container)
-            partial_matches_services.update(db_container.services)
-
-    # If the partial matches match the requirements, use them
-    if not node_services.difference(partial_matches_services):
-        return partial_matches
-
     if closest_match:
-        return [closest_match]
+        return closest_match
     else:
-        logger.error("No container with the required services was found in the CONTAINER DATABASE, using default.")
-        return [DEFAULT]
+        logger.error("No container with the required services was found in the CONTAINER DATABASE")
+        return DEFAULT

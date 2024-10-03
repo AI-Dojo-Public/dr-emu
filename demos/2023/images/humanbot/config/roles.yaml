@@ -1,9 +1,0 @@
----
-- name: "IT"
-  protocols:
-    - name: SecureShellProtocol
-      weight: 4
-    - name: HyperTextTransferProtocol
-      weight: 3
-#    - name: VirtualSessionProtocol
-#      weight: 1
