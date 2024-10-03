@@ -7,6 +7,8 @@ from netaddr import IPNetwork
 from dr_emu.lib.logger import logger
 
 used_infra_networks: set[IPNetwork] = set()
+used_docker_container_names: set[str] = set()
+used_docker_network_names: set[str] = set()
 
 
 # TODO: Needs testing, also, never used
@@ -97,13 +99,13 @@ async def get_available_networks_for_infras(
     :return: list of available Networks, that can be used during infrastructure building.
     """
     logger.debug("Getting available IP addressed for networks")
-    used_infra_supernets.update(used_infra_networks)
+    used_infra_networks.update(used_infra_supernets)
     available_networks: list[IPNetwork] = []
     # TODO: what if I run out of ip address space?
     infrastructure_subnets = IPNetwork("10.0.0.0/8").subnet(16)
 
     for subnet in infrastructure_subnets:
-        if subnet not in [*used_networks, *available_networks, *used_infra_supernets]:
+        if subnet not in [*used_networks, *available_networks, *used_infra_networks]:
             available_networks.append(subnet)
         if len(available_networks) == number_of_infrastructures:
             break

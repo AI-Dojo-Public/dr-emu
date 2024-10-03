@@ -1,5 +1,5 @@
 services:
-  aidojo_app:
+  dr_emu:
     build:
       args:
         POETRY_VIRTUALENVS_IN_PROJECT: false

@@ -1,8 +1,8 @@
-"""Create initial tables
+"""Create tables
 
-Revision ID: f95d310b03d6
+Revision ID: a498cbf5e29c
 Revises: 
-Create Date: 2024-05-30 15:57:57.696106
+Create Date: 2024-09-13 15:52:27.736536
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlalchemy_utils
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'f95d310b03d6'
+revision: str = 'a498cbf5e29c'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -107,6 +107,7 @@ def upgrade() -> None:
     )
     op.create_table('node',
     sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('service_tags', sqlalchemy_utils.types.json.JSONType(), nullable=False),
     sa.Column('ipc_mode', sa.String(), nullable=True),
     sa.Column('depends_on', sqlalchemy_utils.types.json.JSONType(), nullable=False),
     sa.ForeignKeyConstraint(['id'], ['appliance.id'], ),
@@ -132,7 +133,7 @@ def upgrade() -> None:
     )
     op.create_table('service',
     sa.Column('parent_node_id', sa.Integer(), nullable=False),
-    sa.Column('type', sa.String(), nullable=False),
+    sa.Column('model_type', sa.String(), nullable=False),
     sa.Column('image', sa.String(), nullable=False),
     sa.Column('environment', sqlalchemy_utils.types.json.JSONType(), nullable=True),
     sa.Column('command', sqlalchemy_utils.types.scalar_list.ScalarListType(), nullable=True),

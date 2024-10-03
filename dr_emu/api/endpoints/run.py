@@ -79,20 +79,18 @@ private ip range of the **10.0.0.0/8** is available.
     )
 async def start_run(session: DBSession, run_id: int, instances: int = 1):
     try:
-        while await check_running_tasks("build_run"):
-            logger.info("Waiting for previous run to finish")
-            await asyncio.sleep(1)
-            continue
-        await asyncio.create_task(run_controller.start_run(
+        await run_controller.start_run(
             run_id, instances, session
-        ), name="build_run")
+        )
     except NoResultFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id)
         )
-    except (ImageNotFound, RuntimeError, APIError) as ex:
+    except (ImageNotFound, RuntimeError, APIError, TypeError) as ex:
+        await run_controller.stop_run(run_id, session)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
     except Exception as err:
+        await run_controller.stop_run(run_id, session)
         raise err
 
     return {"message": f"{instances} Run instances started"}

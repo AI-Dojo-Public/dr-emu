@@ -1,9 +1,11 @@
 import randomname
 from netaddr import IPNetwork
 from uuid import uuid1
+from packaging.version import Version
+from dataclasses import asdict
 import copy
-
 from cyst.api.configuration import (
+    ExploitConfig,
     RouterConfig,
     NodeConfig,
     ActiveServiceConfig,
@@ -113,7 +115,7 @@ class CYSTParser:
             interfaces = [
                 Interface(interface.ip, await self._find_network(interface.net)) for interface in cyst_node.interfaces
             ]
-            services = await self._parse_services(cyst_node.active_services + cyst_node.passive_services)
+            services, service_tags = await self._parse_services(cyst_node.active_services + cyst_node.passive_services)
 
             node_type = NodeType.DEFAULT
             if len(cyst_node.active_services) > 0:
@@ -121,28 +123,29 @@ class CYSTParser:
             elif "dns" in cyst_node.id or "dns" in [service.type for service in cyst_node.passive_services]:
                 node_type = NodeType.DNS
 
-            logger.debug("Adding node", id=cyst_node.id, services=[service.container.image for service in services])
-            # TODO: temporary solution for dns
-            node_container = (
-                containers.DEFAULT if node_type in [NodeType.DEFAULT, NodeType.ATTACKER] else containers.DNS_SERVER
-            )
-            self.nodes.append(Node(cyst_node.id, interfaces, node_container, services, node_type))
+            logger.debug("Adding node", id=cyst_node.id, services=[service.container.image for service in services],
+                         service_tags=service_tags)
+            # TODO: Figure out how to match node containers while not breaking the node-service architecture
+            node_container = await containers.match_node_container(service_tags)
+            self.nodes.append(Node(cyst_node.id, interfaces, node_container, service_tags, services, node_type))
 
-    async def _parse_services(self, node_services: list[PassiveServiceConfig | ActiveServiceConfig]) -> list[Service]:
+    async def _parse_services(self, node_services: list[PassiveServiceConfig | ActiveServiceConfig]) -> tuple[
+        list[Service], list[containers.ServiceTag]]:
         """
         Create service models from nodes in cyst infrastructure prescription.
         :param node_services: node objects from cyst infrastructure
         :return:
         """
-        match_rules: set[containers.ServiceTag] = set()
+        service_tags: list[containers.ServiceTag] = []
         for node_service in node_services:
             match node_service:
                 case ActiveServiceConfig():
-                    match_rules.add(containers.ServiceTag(node_service.type))
+                    service_tags.append(containers.ServiceTag(node_service.type))
                 case PassiveServiceConfig():
-                    match_rules.add(containers.ServiceTag(node_service.type, node_service.version))
+                    service_tags.append(containers.ServiceTag(node_service.type, node_service.version))
 
-        return [Service(str(uuid1()), container) for container in containers.match_container(match_rules)]
+        return ([Service(str(uuid1()), container) for container in
+                 await containers.match_service_container(service_tags)], service_tags)
 
     async def _parse_routers(self, cyst_routers: list[RouterConfig]):
         """
@@ -171,6 +174,17 @@ class CYSTParser:
 
             logger.debug("Adding router", id=cyst_router.id, type=router_type)
             self.routers.append(Router(cyst_router.id, router_type, interfaces, containers.ROUTER, firewall_rules))
+
+    async def _parse_exploits(self, exploits: list[ExploitConfig]):
+        all_service_tags = [service for node in self.nodes for service in node.service_tags]
+
+        for exploit in exploits:
+            for vuln_service in exploit.services:
+                for service_tag in all_service_tags:
+                    if service_tag.type == vuln_service.name and (
+                            Version(vuln_service.min_version) <= Version(service_tag.version) <= Version(
+                        vuln_service.max_version)):
+                        service_tag.exploits.append("cve_placeholder")
 
     async def _resolve_dependencies(self):
         all_services = [service for node in self.nodes for service in node.services]
@@ -254,7 +268,6 @@ class CYSTParser:
                         volume.services.append(service_model)
                         volumes[volume.name] = volume
 
-
             all_docker_services += services
             for interface in node.interfaces:
                 interfaces.append(
@@ -268,6 +281,7 @@ class CYSTParser:
                 interfaces=interfaces,
                 image=node.container.image,
                 services=services,
+                service_tags=[asdict(service_tag) for service_tag in node.service_tags],
                 environment=copy.deepcopy(node.container.environment),
                 command=node.container.command,
                 healthcheck=node.container.healthcheck,
@@ -306,6 +320,8 @@ class CYSTParser:
 
         cyst_routers: list[RouterConfig] = list()
         cyst_nodes: list[NodeConfig] = list()
+        exploits: list[ExploitConfig] = list()
+
         for item in self.infrastructure:
             match item:
                 case RouterConfig():
@@ -314,9 +330,13 @@ class CYSTParser:
                 case NodeConfig():
                     item: NodeConfig
                     cyst_nodes.append(item)
+                case ExploitConfig():
+                    item: ExploitConfig
+                    exploits.append(item)
 
         await self._parse_networks(cyst_routers)
         await self._parse_routers(cyst_routers)
         await self._parse_nodes(cyst_nodes)
+        await self._parse_exploits(exploits)
         await self._resolve_dependencies()
         logger.info("Completed parsing cyst infrastructure description")

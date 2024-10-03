@@ -82,7 +82,6 @@ class InfrastructureController:
 
         logger.info(
             "Created infrastructure",
-            id=self.infrastructure.id,
             name=self.infrastructure.name,
         )
 
@@ -186,6 +185,8 @@ class InfrastructureController:
         )
         network_tasks: set[asyncio.Task[None]] = set()
         for network in self.infrastructure.networks:
+            if network.name in util.used_docker_network_names:
+                util.used_docker_network_names.remove(network.name)
             if not check_id or (check_id and network.docker_id != ""):
                 network_tasks.add(asyncio.create_task(network.delete()))
         return network_tasks
@@ -203,6 +204,8 @@ class InfrastructureController:
         )
         router_tasks: set[asyncio.Task[None]] = set()
         for router in self.infrastructure.routers:
+            if router.name in util.used_docker_container_names:
+                util.used_docker_container_names.remove(router.name)
             if not check_id or (check_id and router.docker_id != ""):
                 router_tasks.add(asyncio.create_task(router.delete()))
         return router_tasks
@@ -220,6 +223,8 @@ class InfrastructureController:
         )
         node_tasks: set[asyncio.Task[None]] = set()
         for node in self.infrastructure.nodes:
+            if node.name in util.used_docker_container_names:
+                util.used_docker_container_names.remove(node.name)
             if not check_id or (check_id and node.docker_id != ""):
                 node_tasks.add(asyncio.create_task(node.delete()))
         return node_tasks
@@ -424,6 +429,8 @@ class InfrastructureController:
             infrastructure=infrastructure,
         )
 
+        await InfrastructureController.configure_dns(nodes)
+
         await controller.change_names(
             container_names=docker_container_names, network_names=docker_network_names, volumes=volumes
         )
@@ -440,8 +447,6 @@ class InfrastructureController:
                         service.environment["CRYTON_WORKER_NAME"] = f"attacker_{infra_name}_{service.name}"
                     elif "metasploit" in service.image:
                         service.environment["METASPLOIT_LHOST"] = str(node.interfaces[0].ipaddress)
-
-        await InfrastructureController.configure_dns(nodes)
 
         return controller
 
@@ -485,8 +490,8 @@ class InfrastructureController:
                     f"Management Network containing Cryton '{settings.management_network_name}' not found"
                 )
 
-        docker_container_names = await util.get_container_names(client)
-        docker_network_names = await util.get_network_names(client)
+        util.used_docker_container_names.update(await util.get_container_names(client))
+        util.used_docker_network_names.update(await util.get_network_names(client))
 
         template = await template_controller.get_template(run.template_id, db_session)
         parser = CYSTParser(template.description)
@@ -512,8 +517,8 @@ class InfrastructureController:
                     available_infrastructure_supernets[i],
                     used_docker_networks,
                     parser,
-                    docker_container_names,
-                    docker_network_names,
+                    util.used_docker_container_names,
+                    util.used_docker_network_names,
                     infrastructure_names[i],
                 )
             )
@@ -552,6 +557,8 @@ class InfrastructureController:
 
         # destroy docker objects
         await controller.stop()
+        if infrastructure.supernet in util.used_infra_networks:
+            util.used_infra_networks.remove(infrastructure.supernet)
 
     @staticmethod
     async def delete_infra(infrastructure: Infrastructure, db_session: AsyncSession):
