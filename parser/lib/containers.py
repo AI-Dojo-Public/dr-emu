@@ -104,14 +104,12 @@ SERVICE_CONTAINERS = [
             "METASPLOIT_RPC_PASSWORD": "cryton",
         },
         can_be_combined=True,
-        is_attacker=True,
     ),
     ServiceContainer(
         "bcsecurity/empire:v4.10.0",
         tag=ServiceTag("empire", "4.10.0"),
         command=["server", "--username", "cryton", "--password", "cryton"],
         can_be_combined=True,
-        is_attacker=True,
     ),
     ServiceContainer(
         "coredns/coredns",

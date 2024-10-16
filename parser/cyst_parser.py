@@ -184,16 +184,16 @@ class CYSTParser:
                     if service_tag.type == vuln_service.name and (
                             Version(vuln_service.min_version) <= Version(service_tag.version) <= Version(
                         vuln_service.max_version)):
-                        service_tag.exploits.append("cve_placeholder")
+                        service_tag.exploits.add("cve_placeholder")
 
     async def _resolve_dependencies(self):
         all_services = [service for node in self.nodes for service in node.services]
         for service in all_services:
             if service_requirements := service.container.requires:
                 for possible_service in all_services:
-                    if met_requirements := possible_service.container.services.intersection(service_requirements):
+                    if (met_requirements := possible_service.container.tag) in service_requirements:
                         service.depends_on.append(possible_service)
-                        service_requirements.difference_update(met_requirements)
+                        service_requirements.append(met_requirements)
                         if not service_requirements:
                             break
 
