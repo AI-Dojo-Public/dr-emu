@@ -161,7 +161,7 @@ class CYSTParser:
             for interface in cyst_router.interfaces:
                 network = await self._find_network(interface.net)
                 # TODO: remove later; Router is now also Switch in CYST Core
-                if not any(network.gateway == i.ip for i in interfaces):
+                if not any(network.gateway == i.ip for i in interfaces) and interface.index not in [router_config.port for router_config in cyst_router.routing_table]:
                     interfaces.append(Interface(network.gateway, network))
 
             # TODO: Better FirewallRule extraction if there will be different cyst configuration

@@ -45,6 +45,7 @@ def perimeter_router():
                 ]
             )
         ],
+        routing_table=[Mock()]
     )
 
 
@@ -72,6 +73,7 @@ def internal_router():
                 ]
             )
         ],
+        routing_table=[Mock()]
     )
 
 
