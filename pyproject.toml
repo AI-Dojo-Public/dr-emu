@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dr-emu"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = ["Milan Bohacek <bohacek@ics.muni.cz>", "Jiri Raja <Raja@ics.muni.cz>"]
 readme = "README.md"

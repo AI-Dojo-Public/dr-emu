@@ -41,7 +41,7 @@ class DockerMixin:
     """
 
     docker_id: Mapped[str] = mapped_column()
-    name: Mapped[str] = mapped_column()
+    name: Mapped[str] = mapped_column(unique=True)
     _client: DockerClient | None = None
     kwargs: Mapped[Optional[dict[Any, Any]]] = mapped_column(JSONType, nullable=True)
 
@@ -342,12 +342,12 @@ class Infrastructure(Base):
 
     __tablename__ = "infrastructure"
 
-    name: Mapped[str] = mapped_column()
-    _supernet = mapped_column("supernet", String)
+    name: Mapped[str] = mapped_column(unique=True)
+    _supernet = mapped_column("supernet", String, unique=True)
     networks: Mapped[list["Network"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
     routers: Mapped[list["Router"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
     nodes: Mapped[list["Node"]] = relationship(back_populates="infrastructure", cascade="all, delete-orphan")
-    instance_id: Mapped[int] = mapped_column(ForeignKey("instance.id"))
+    instance_id: Mapped[int] = mapped_column(ForeignKey("instance.id"), nullable=True)
     instance: Mapped["Instance"] = relationship(back_populates="infrastructure", single_parent=True)
 
     @property

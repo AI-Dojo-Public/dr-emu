@@ -1,8 +1,8 @@
-"""Create tables
+"""Create initial tables
 
-Revision ID: a498cbf5e29c
+Revision ID: 272289f38e0b
 Revises: 
-Create Date: 2024-09-13 15:52:27.736536
+Create Date: 2024-10-21 19:53:56.740294
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlalchemy_utils
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a498cbf5e29c'
+revision: str = '272289f38e0b'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -34,7 +34,8 @@ def upgrade() -> None:
     sa.Column('name', sa.String(), nullable=False),
     sa.Column('kwargs', sqlalchemy_utils.types.json.JSONType(), nullable=True),
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('name')
     )
     op.create_table('run',
     sa.Column('name', sa.String(), nullable=False),
@@ -52,10 +53,12 @@ def upgrade() -> None:
     op.create_table('infrastructure',
     sa.Column('name', sa.String(), nullable=False),
     sa.Column('supernet', sa.String(), nullable=True),
-    sa.Column('instance_id', sa.Integer(), nullable=False),
+    sa.Column('instance_id', sa.Integer(), nullable=True),
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.ForeignKeyConstraint(['instance_id'], ['instance.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('name'),
+    sa.UniqueConstraint('supernet')
     )
     op.create_table('appliance',
     sa.Column('cap_add', sa.String(), nullable=True),
@@ -72,7 +75,8 @@ def upgrade() -> None:
     sa.Column('kwargs', sqlalchemy_utils.types.json.JSONType(), nullable=True),
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.ForeignKeyConstraint(['infrastructure_id'], ['infrastructure.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('name')
     )
     op.create_table('network',
     sa.Column('name', sa.String(), nullable=False),
@@ -107,7 +111,7 @@ def upgrade() -> None:
     )
     op.create_table('node',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('service_tags', sqlalchemy_utils.types.json.JSONType(), nullable=False),
+    sa.Column('service_tags', sqlalchemy_utils.types.json.JSONType(), nullable=True),
     sa.Column('ipc_mode', sa.String(), nullable=True),
     sa.Column('depends_on', sqlalchemy_utils.types.json.JSONType(), nullable=False),
     sa.ForeignKeyConstraint(['id'], ['appliance.id'], ),
@@ -145,7 +149,8 @@ def upgrade() -> None:
     sa.Column('kwargs', sqlalchemy_utils.types.json.JSONType(), nullable=True),
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.ForeignKeyConstraint(['parent_node_id'], ['node.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('name')
     )
     op.create_table('depends_on',
     sa.Column('dependant_service_id', sa.Integer(), nullable=False),

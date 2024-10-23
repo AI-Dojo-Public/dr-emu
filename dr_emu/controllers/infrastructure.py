@@ -1,6 +1,7 @@
 import asyncio
 import copy
 from typing import Sequence
+from uuid import uuid1
 
 import randomname
 from sqlalchemy import select
@@ -32,13 +33,13 @@ from dr_emu.models import (
 
 from parser.cyst_parser import CYSTParser
 from dr_emu.settings import settings
+from tests.integration.test_rest_api import infrastructure
 
 
 class InfrastructureController:
     """
     Class for handling actions regarding creating and destroying the infrastructure in docker.
     """
-
     def __init__(self, infrastructure: Infrastructure):
         self.client = docker.from_env()
         self.infrastructure = infrastructure
@@ -185,8 +186,6 @@ class InfrastructureController:
         )
         network_tasks: set[asyncio.Task[None]] = set()
         for network in self.infrastructure.networks:
-            if network.name in util.used_docker_network_names:
-                util.used_docker_network_names.remove(network.name)
             if not check_id or (check_id and network.docker_id != ""):
                 network_tasks.add(asyncio.create_task(network.delete()))
         return network_tasks
@@ -204,8 +203,6 @@ class InfrastructureController:
         )
         router_tasks: set[asyncio.Task[None]] = set()
         for router in self.infrastructure.routers:
-            if router.name in util.used_docker_container_names:
-                util.used_docker_container_names.remove(router.name)
             if not check_id or (check_id and router.docker_id != ""):
                 router_tasks.add(asyncio.create_task(router.delete()))
         return router_tasks
@@ -223,8 +220,6 @@ class InfrastructureController:
         )
         node_tasks: set[asyncio.Task[None]] = set()
         for node in self.infrastructure.nodes:
-            if node.name in util.used_docker_container_names:
-                util.used_docker_container_names.remove(node.name)
             if not check_id or (check_id and node.docker_id != ""):
                 node_tasks.add(asyncio.create_task(node.delete()))
         return node_tasks
@@ -286,24 +281,19 @@ class InfrastructureController:
             containers += node.services
 
         for container in containers:
-            if container.name in container_names:
-                if (new_name := f"{self.infrastructure.name}-{container.name}") in container_names:
-                    # if by some miracle container with infra color + container_name already exists on a system
-                    new_name += "-dr-emu"
-                name_pairs[container.name] = new_name
-                container.name = new_name
-                container_names.add(new_name)
-            else:
-                container_names.add(container.name)
+            if (new_name := f"{self.infrastructure.name}-{container.name}") in container_names:
+                # if by some miracle container with infra color + container_name already exists on a system
+                new_name += "-dr-emu"
+            name_pairs[container.name] = new_name
+            container.name = new_name
+            container_names.add(new_name)
+
         await self.update_environment_variables(containers, name_pairs)
         for network in self.infrastructure.networks:
-            if network.name in network_names:
-                if (new_name := f"{self.infrastructure.name}-{network.name}") in network_names:
-                    new_name += "-dr-emu"
-                network.name = new_name
-                network_names.add(new_name)
-            else:
-                network_names.add(network.name)
+            if (new_name := f"{self.infrastructure.name}-{network.name}") in network_names:
+                new_name += "-dr-emu"
+            network.name = new_name
+            network_names.add(new_name)
         for volume in volumes:
             if not volume.local:
                 volume.name = f"{self.infrastructure.name}-{volume.name}"
@@ -311,8 +301,8 @@ class InfrastructureController:
     async def create_management_network(self, management_subnet: IPNetwork):
         used_network_names = await util.get_network_names(docker.from_env())
 
-        while (management_name := randomname.generate("adj/colors", "management")) in used_network_names:
-            continue
+        if (management_name := f"{self.infrastructure.name}-management") in used_network_names:
+            management_name += str(uuid1())
 
         management_network = Network(
             ipaddress=management_subnet,
@@ -409,20 +399,17 @@ class InfrastructureController:
 
     @staticmethod
     async def create_controller(
-        infrastructure_supernet: IPNetwork,
+        infrastructure: Infrastructure,
         used_docker_networks: set[IPNetwork],
         parser: CYSTParser,
         docker_container_names: set[str],
         docker_network_names: set[str],
-        infra_name: str,
     ):
         networks, routers, nodes, volumes = await parser.bake_models()
-        infrastructure = Infrastructure(
-            routers=routers, nodes=nodes, networks=networks, name=infra_name, supernet=infrastructure_supernet
-        )
+        infrastructure.networks, infrastructure.routers, infrastructure.nodes = networks, routers, nodes
 
         available_networks = await util.generate_infrastructure_subnets(
-            infrastructure_supernet, list(parser.networks_ips), used_docker_networks
+            infrastructure.supernet, list(parser.networks_ips), used_docker_networks
         )
         controller = await InfrastructureController.prepare_controller_for_infra_creation(
             available_networks=available_networks,
@@ -444,7 +431,7 @@ class InfrastructureController:
             if isinstance(node, Attacker):
                 for service in node.services:
                     if isinstance(service, ServiceAttacker):
-                        service.environment["CRYTON_WORKER_NAME"] = f"attacker_{infra_name}_{service.name}"
+                        service.environment["CRYTON_WORKER_NAME"] = f"attacker_{infrastructure.name}_{service.name}"
                     elif "metasploit" in service.image:
                         service.environment["METASPLOIT_LHOST"] = str(node.interfaces[0].ipaddress)
 
@@ -461,7 +448,6 @@ class InfrastructureController:
         """
 
         client = docker.from_env()
-        existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
         used_docker_networks: set[IPNetwork] = set()
         # networks.list doesn't return same objects as networks.get
         docker_networks = await asyncio.to_thread(client.networks.list)
@@ -472,12 +458,6 @@ class InfrastructureController:
                 IPNetwork(client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"])
             )
 
-        used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
-        available_infrastructure_supernets = await util.get_available_networks_for_infras(
-            used_docker_networks,
-            number_of_infrastructures,
-            used_infrastructure_supernets,
-        )
         logger.info("Building infrastructures")
         controllers: list[InfrastructureController] = []
 
@@ -490,8 +470,8 @@ class InfrastructureController:
                     f"Management Network containing Cryton '{settings.management_network_name}' not found"
                 )
 
-        util.used_docker_container_names.update(await util.get_container_names(client))
-        util.used_docker_network_names.update(await util.get_network_names(client))
+        used_docker_container_names = await util.get_container_names(client)
+        used_docker_network_names = await util.get_network_names(client)
 
         template = await template_controller.get_template(run.template_id, db_session)
         parser = CYSTParser(template.description)
@@ -499,27 +479,39 @@ class InfrastructureController:
 
         await util.pull_images(client, parser.docker_images)
 
+        infrastructure_names: set[str] = set()
+        infrastructures: list[Infrastructure] = []
+
+        existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
+        used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
         used_infrastructure_names = {infra.name for infra in existing_infrastructures}
-        infrastructure_names: list[str] = []
+        available_infrastructure_supernets = await util.get_available_networks_for_infras(
+            used_docker_networks,
+            number_of_infrastructures,
+            used_infrastructure_supernets,
+        )
 
-        # TODO: only 75 colors, find alternative
         for i in range(number_of_infrastructures):
-            while (infra_name := randomname.generate("adj/colors")) in used_infrastructure_names:
+            while (infra_name := randomname.generate("adj/colors", "n/astronomy")) in used_infrastructure_names:
                 continue
-            infrastructure_names.append(infra_name)
+            infrastructure_names.update(infra_name)
+            infrastructures.append(Infrastructure(name=infra_name,
+                                                  supernet=available_infrastructure_supernets[i],
+                                                  nodes=[],
+                                                  networks=[],
+                                                  routers=[]))
+        db_session.add_all(infrastructures)
+        await db_session.commit()
 
-        for i in range(number_of_infrastructures):
-            # TODO: Move checking of used ips/names into the parser?
-            # get the correct amount of networks for infra from available network list
 
+        for infra in infrastructures:
             controllers.append(
                 await InfrastructureController.create_controller(
-                    available_infrastructure_supernets[i],
+                    infra,
                     used_docker_networks,
                     parser,
-                    util.used_docker_container_names,
-                    util.used_docker_network_names,
-                    infrastructure_names[i],
+                    used_docker_container_names,
+                    used_docker_network_names,
                 )
             )
 
@@ -557,8 +549,7 @@ class InfrastructureController:
 
         # destroy docker objects
         await controller.stop()
-        if infrastructure.supernet in util.used_infra_networks:
-            util.used_infra_networks.remove(infrastructure.supernet)
+
 
     @staticmethod
     async def delete_infra(infrastructure: Infrastructure, db_session: AsyncSession):
