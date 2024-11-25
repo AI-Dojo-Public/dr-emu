@@ -1,8 +1,17 @@
+import asyncio
+from typing import Sequence
+
+import docker.errors
 import randomname
+import sqlalchemy
+from cyst.api.logic.exploit import VulnerableService
 from netaddr import IPNetwork
 from uuid import uuid1
 from packaging.version import Version
 from dataclasses import asdict
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 import copy
 from cyst.api.configuration import (
     ExploitConfig,
@@ -13,22 +22,25 @@ from cyst.api.configuration import (
 )
 from cyst.api.configuration.configuration import ConfigItem
 from cyst.api.environment.environment import Environment
-
+from sqlalchemy.orm import joinedload
 from shared import constants
 from dr_emu.lib.logger import logger
-
-from parser.lib.simple_models import Network, Interface, FirewallRule, Router, Service, Node, NodeType
+from dr_emu.controllers import image as image_controller
+from parser.lib.simple_models import (Network, Interface, FirewallRule, Router, Node,
+                                      NodeType, Image, Service)
 from dr_emu.models import (
     Network as DockerNetwork,
     Interface as DockerInterface,
     FirewallRule as DockerFirewallRule,
     Router as DockerRouter,
-    Service as DockerService,
+    ServiceContainer as DockerService,
     ServiceAttacker as DockerServiceAttacker,
     Node as DockerNode,
     Attacker as DockerAttacker,
     Dns as DockerDns,
     DependsOn as DockerDependsOn,
+    Image as ImageModel,
+    Service as ServiceModel,
     Volume
 )
 from parser.lib import containers
@@ -40,6 +52,8 @@ class CYSTParser:
         self.networks: list[Network] = list()
         self.routers: list[Router] = list()
         self.nodes: list[Node] = list()
+        self.docker_images: set[Image] = {containers.IMAGE_DEFAULT}
+        self.async_lock = asyncio.Lock()
 
     @staticmethod
     def _load_infrastructure_description(description: str) -> list[ConfigItem]:
@@ -55,18 +69,18 @@ class CYSTParser:
     def networks_ips(self) -> set[IPNetwork]:
         return {network.subnet for network in self.networks}
 
-    @property
-    def docker_images(self) -> set[str]:
-        images: set[str] = set()
-        for router in self.routers:
-            images.add(router.container.image)
-        for node in self.nodes:
-            images.add(node.container.image)
-            for service in node.services:
-                images.add(service.container.image)
+    async def create_image(self, services: list[Service]) -> Image:
+        firehole_config = ""  # TODO
+        for service in services:
+            if service.type in containers.EXPLOITS:
+                firehole_config = containers.EXPLOITS[service.type]
 
-        logger.debug(f"Listing used images", images=images)
-        return images
+        image = Image(name=str(uuid1()), services=tuple(services), firehole_config=firehole_config)
+        if image in self.docker_images:
+            return image
+
+        self.docker_images.add(image)
+        return image
 
     async def _find_network(self, subnet: IPNetwork) -> Network:
         """
@@ -105,7 +119,7 @@ class CYSTParser:
                     )
                     self.networks.append(Network(network_name, network_type, subnet, interface.ip))
 
-    async def _parse_nodes(self, cyst_nodes: list[NodeConfig]):
+    async def _parse_nodes(self, cyst_nodes: list[NodeConfig], exploits: list[ExploitConfig]):
         """
         Create node models from cyst infrastructure prescription.
         :param cyst_nodes: node objects from cyst infrastructure
@@ -115,37 +129,62 @@ class CYSTParser:
             interfaces = [
                 Interface(interface.ip, await self._find_network(interface.net)) for interface in cyst_node.interfaces
             ]
-            services, service_tags = await self._parse_services(cyst_node.active_services + cyst_node.passive_services)
 
+            if cyst_node.id in containers.NODES:
+                node = containers.NODES[cyst_node.id]
+                node.interfaces = interfaces
+                self.nodes.append(node)
+                self.docker_images.add(node.image)
+                for service_container in node.service_containers:
+                    self.docker_images.add(service_container.image)
+                continue
+
+            vulnerable_services = set()
+            for exploit in exploits:
+                for vuln_service in exploit.services:
+                    if vuln_service.name != "bash":
+                        vulnerable_services.add(vuln_service.name)
+
+            services = await self._parse_services(
+                cyst_node.active_services + cyst_node.passive_services, vulnerable_services)
+
+            image = await self.create_image(services=services)
             node_type = NodeType.DEFAULT
             if len(cyst_node.active_services) > 0:
                 node_type = NodeType.ATTACKER
-            elif "dns" in cyst_node.id or "dns" in [service.type for service in cyst_node.passive_services]:
-                node_type = NodeType.DNS
 
-            logger.debug("Adding node", id=cyst_node.id, services=[service.container.image for service in services],
-                         service_tags=service_tags)
-            # TODO: Figure out how to match node containers while not breaking the node-service architecture
-            node_container = await containers.match_node_container(service_tags)
-            self.nodes.append(Node(cyst_node.id, interfaces, node_container, service_tags, services, node_type))
+            logger.debug("Adding node", id=cyst_node.id, service_tags=services)
+            self.nodes.append(
+                Node(image=image, name=cyst_node.id, interfaces=interfaces,
+                     type=node_type))
 
-    async def _parse_services(self, node_services: list[PassiveServiceConfig | ActiveServiceConfig]) -> tuple[
-        list[Service], list[containers.ServiceTag]]:
+    async def _parse_services(self, node_services: set[PassiveServiceConfig | ActiveServiceConfig],
+                              vulnerable_services: set[str]) -> list[Service]:
         """
         Create service models from nodes in cyst infrastructure prescription.
         :param node_services: node objects from cyst infrastructure
-        :return:
+        :return:´´
         """
-        service_tags: list[containers.ServiceTag] = []
-        for node_service in node_services:
-            match node_service:
-                case ActiveServiceConfig():
-                    service_tags.append(containers.ServiceTag(node_service.type))
-                case PassiveServiceConfig():
-                    service_tags.append(containers.ServiceTag(node_service.type, node_service.version))
+        services: list[Service] = []
 
-        return ([Service(str(uuid1()), container) for container in
-                 await containers.match_service_container(service_tags)], service_tags)
+        for node_service in node_services:
+            if node_service.type == "bash":
+                continue
+
+            cves = ""
+            if node_service.type in containers.EXPLOITS:  # TODO: temporary solution instead of `vulnerable_services`
+                cves = "cve_placeholder;"  # TODO: wait for cve implementation
+            if node_service.type in containers.SERVICES:
+                services.append(containers.SERVICES[node_service.type])
+            else:
+                match node_service:
+                    case ActiveServiceConfig():
+                        services.append(Service(type=node_service.type, version="", cves=cves))
+                    case PassiveServiceConfig():
+                        services.append(
+                            Service(type=node_service.type, version=node_service.version, cves=cves))
+
+        return services
 
     async def _parse_routers(self, cyst_routers: list[RouterConfig]):
         """
@@ -161,7 +200,7 @@ class CYSTParser:
             for interface in cyst_router.interfaces:
                 network = await self._find_network(interface.net)
                 # TODO: remove later; Router is now also Switch in CYST Core
-                if not any(network.gateway == i.ip for i in interfaces) and interface.index not in [router_config.port for router_config in cyst_router.routing_table]:
+                if not any(network.gateway == i.ip for i in interfaces):
                     interfaces.append(Interface(network.gateway, network))
 
             # TODO: Better FirewallRule extraction if there will be different cyst configuration
@@ -173,31 +212,30 @@ class CYSTParser:
                 )
 
             logger.debug("Adding router", id=cyst_router.id, type=router_type)
-            self.routers.append(Router(cyst_router.id, router_type, interfaces, containers.ROUTER, firewall_rules))
+            self.routers.append(
+                Router(image=containers.IMAGE_DEFAULT, name=cyst_router.id, type=router_type, interfaces=interfaces,
+                       firewall_rules=firewall_rules))
 
-    async def _parse_exploits(self, exploits: list[ExploitConfig]):
-        all_service_tags = [service for node in self.nodes for service in node.service_tags]
-
+    async def _parse_exploits(self, exploits: list[ExploitConfig], service: Service) -> None:
         for exploit in exploits:
             for vuln_service in exploit.services:
-                for service_tag in all_service_tags:
-                    if service_tag.type == vuln_service.name and (
-                            Version(vuln_service.min_version) <= Version(service_tag.version) <= Version(
-                        vuln_service.max_version)):
-                        service_tag.exploits.add("cve_placeholder")
+                if service.type == vuln_service.name:
+                    # if service.version and (Version(vuln_service.min_version) <= Version(service.version) <= Version(vuln_service.max_version)):
+                    service.cves += "cve_placeholder;"
 
-    async def _resolve_dependencies(self):
-        all_services = [service for node in self.nodes for service in node.services]
-        for service in all_services:
-            if service_requirements := service.container.requires:
-                for possible_service in all_services:
-                    if (met_requirements := possible_service.container.tag) in service_requirements:
-                        service.depends_on.append(possible_service)
-                        service_requirements.append(met_requirements)
-                        if not service_requirements:
-                            break
+    # async def _resolve_dependencies(self): # TODO:
+    #     all_services = [service for node in self.nodes for service in node.image.services]
+    #     for service in all_services:
+    #         if service_requirements := service.requires:
+    #             for possible_service in all_services:
+    #                 if met_requirements := possible_service.container.services.intersection(service_requirements):
+    #                     service.depends_on.append(possible_service)
+    #                     service_requirements.difference_update(met_requirements)
+    #                     if not service_requirements:
+    #                         break
 
-    async def bake_models(self) -> tuple[list[DockerNetwork], list[DockerRouter], list[DockerNode], list[Volume]]:
+    async def bake_models(self, db_session: AsyncSession, infrastructure_name: str) -> tuple[list[DockerNetwork], list[DockerRouter],
+    list[DockerNode], list[Volume], list[ImageModel]]:
         """
         Create linked database models for the parsed infrastructure.
         :return: Network, Router, and Node models
@@ -206,6 +244,7 @@ class CYSTParser:
         routers: dict[str, DockerRouter] = dict()
         nodes: dict[str, DockerNode] = dict()
         volumes: dict[str, Volume] = dict()
+        image_models: list[ImageModel] = []
 
         # Build DB of Docker networks
         for network in self.networks:
@@ -215,8 +254,36 @@ class CYSTParser:
                 name=network.name,
                 network_type=network.type,
             )
+        logger.info("Creating infra images", infra_name=infrastructure_name)
+        db_images = await image_controller.list_images(db_session)
+        await self.bake_router_models(routers, networks, db_images, image_models)
+        await self.bake_node_models(nodes, volumes, networks, db_images, image_models)
+        for new_image in image_models:
+            if new_image not in db_images:
+                db_session.add(new_image)
+        logger.debug("Saving new images to db", infra_name=infrastructure_name)
+        await db_session.commit()
 
+        # TODO: are dependencies necessary now?
+        # Update DB with Docker containers' dependencies
+        # all_services = [service for node in self.nodes for service in node.services]
+        # for service in all_services:
+        #     if not service.depends_on:
+        #         continue
+        #
+        #     docker_service = next(ds for ds in all_docker_services if ds.name == service.name)
+        #     for dependency in service.depends_on:
+        #         docker_dependency = next(dd for dd in all_docker_services if dd.name == dependency.name)
+        #         docker_service.dependencies.append(
+        #             DockerDependsOn(dependency=docker_dependency, state=constants.SERVICE_STARTED)
+        #         )
+        return list(networks.values()), list(routers.values()), list(nodes.values()), list(volumes.values()), [
+            *db_images, *image_models]
+
+    async def bake_router_models(self, routers, networks, db_images, image_models) -> None:
         # Build DB of Docker containers (routers)
+        image_model = await self.bake_image_model(containers.IMAGE_DEFAULT, db_images, image_models)
+
         for router in self.routers:
             interfaces: list[DockerInterface] = list()
             firewall_rules: list[DockerFirewallRule] = list()
@@ -240,33 +307,66 @@ class CYSTParser:
                 name=router.name,
                 router_type=router.type,
                 interfaces=interfaces,
-                image=router.container.image,
+                image=image_model,
                 firewall_rules=firewall_rules,
             )
 
+    @staticmethod
+    async def bake_image_model(simple_image: Image, db_images: Sequence[ImageModel],
+                               image_models: list[ImageModel]) -> ImageModel:
+        service_models = set()
+        for service in simple_image.services:
+            service_models.add(ServiceModel(
+                type=service.type,
+                variable_override=service.variable_override,
+                version=service.version,
+                cves=service.cves,
+            ))
+        image = ImageModel(
+            services=service_models,
+            firehole_config=simple_image.firehole_config,
+            pull=simple_image.pull,
+            name=simple_image.name,
+        )
+        created_images = [*db_images, *image_models]
+        if image in created_images:
+            return created_images[created_images.index(image)]
+
+        image_models.append(image)
+        return image
+
+    async def bake_volumes(self, container_model, container_simple_volumes, infra_volumes):
+        for simple_volume in container_simple_volumes:
+            if simple_volume.name in infra_volumes:
+                container_model.volumes.append(infra_volumes[simple_volume.name])
+            else:
+                volume = Volume(name=simple_volume.name, bind=simple_volume.bind, local=simple_volume.local)
+                container_model.volumes.append(volume)
+                infra_volumes[volume.name] = volume
+
+    async def bake_node_models(self, nodes, volumes, networks, db_images, image_models) -> None:
+        """
+        Create all necessary models for infrastructure based on parsed objects from cyst prescription.
+        :return: None
+        """
         # Build DB of Docker containers (nodes and services)
         all_docker_services: list[DockerService] = list()
         for node in self.nodes:
             services: list[DockerService] = list()
             interfaces: list[DockerInterface] = list()
-            for service in node.services:
-                service_type = DockerServiceAttacker if service.container.is_attacker else DockerService
-                service_model = service_type(
-                    name=service.name,
-                    image=service.container.image,
-                    environment=copy.deepcopy(service.container.environment),
-                    command=service.container.command,
-                    healthcheck=service.container.healthcheck,
-                    kwargs=copy.deepcopy(service.container.kwargs)
+            for service_container in node.service_containers:
+                service_image = await self.bake_image_model(service_container.image, db_images, image_models)
+                service_type = DockerServiceAttacker if service_container.is_attacker else DockerService
+                service_container_model = service_type(
+                    name=str(uuid1()),
+                    image=service_image,
+                    environment=copy.deepcopy(service_container.environment),
+                    command=service_container.command,
+                    healthcheck=service_container.healthcheck,
+                    kwargs=copy.deepcopy(service_container.kwargs)
                 )
-                services.append(service_model)
-                for volume in service.container.volumes:
-                    if volume.name in volumes:
-                        service_model.volumes.append(volumes[volume.name])
-                    else:
-                        volume = Volume(name=volume.name, bind=volume.bind, local=volume.local)
-                        volume.services.append(service_model)
-                        volumes[volume.name] = volume
+                services.append(service_container_model)
+                await self.bake_volumes(service_container_model, service_container.volumes, volumes)
 
             all_docker_services += services
             for interface in node.interfaces:
@@ -275,43 +375,22 @@ class CYSTParser:
                         ipaddress=interface.ip, original_ip=interface.ip, network=networks[interface.network.name]
                     )
                 )
-
+            image_model = await self.bake_image_model(node.image, db_images, image_models)
             node_model = node.type.value(
                 name=node.name,
                 interfaces=interfaces,
-                image=node.container.image,
-                services=services,
-                service_tags=[asdict(service_tag) for service_tag in node.service_tags],
-                environment=copy.deepcopy(node.container.environment),
-                command=node.container.command,
-                healthcheck=node.container.healthcheck,
+                image=image_model,
+                service_containers=services,
+                environment=copy.deepcopy(node.environment),
+                command=node.command,
+                healthcheck=node.healthcheck,
                 config_instructions=[],
-                kwargs=copy.deepcopy(node.container.kwargs),
+                kwargs=copy.deepcopy(node.kwargs),
             )
-            for volume in node.container.volumes:
-                if volume.name in volumes:
-                    node_model.volumes.append(volumes[volume.name])
-                else:
-                    volume = Volume(name=volume.name, bind=volume.bind, local=volume.local)
-                    volume.appliances.append(node_model)
-                    volumes[volume.name] = volume
+            await self.bake_volumes(node_model, node.volumes, volumes)
             nodes[node.name] = node_model
-        # Update DB with Docker containers' dependencies
-        all_services = [service for node in self.nodes for service in node.services]
-        for service in all_services:
-            if not service.depends_on:
-                continue
 
-            docker_service = next(ds for ds in all_docker_services if ds.name == service.name)
-            for dependency in service.depends_on:
-                docker_dependency = next(dd for dd in all_docker_services if dd.name == dependency.name)
-                docker_service.dependencies.append(
-                    DockerDependsOn(dependency=docker_dependency, state=constants.SERVICE_STARTED)
-                )
-
-        return list(networks.values()), list(routers.values()), list(nodes.values()), list(volumes.values())
-
-    async def parse(self):
+    async def parse(self) -> None:
         """
         Create all necessary models for infrastructure based on parsed objects from cyst prescription.
         :return: None
@@ -336,7 +415,6 @@ class CYSTParser:
 
         await self._parse_networks(cyst_routers)
         await self._parse_routers(cyst_routers)
-        await self._parse_nodes(cyst_nodes)
-        await self._parse_exploits(exploits)
-        await self._resolve_dependencies()
+        await self._parse_nodes(cyst_nodes, exploits)
+        # await self._resolve_dependencies()
         logger.info("Completed parsing cyst infrastructure description")

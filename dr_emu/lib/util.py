@@ -1,14 +1,14 @@
+from typing import Any
+
 import docker.errors
 from docker import DockerClient
 import asyncio
-
+import cif
 from netaddr import IPNetwork
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from dr_emu.lib.logger import logger
-
-used_infra_networks: set[IPNetwork] = set()
-used_docker_container_names: set[str] = set()
-used_docker_network_names: set[str] = set()
+from dr_emu.models import Image, ImageState
 
 
 # TODO: Needs testing, also, never used
@@ -89,7 +89,7 @@ async def get_network_names(docker_client: DockerClient) -> set[str]:
 
 
 async def get_available_networks_for_infras(
-    used_networks: set[IPNetwork], number_of_infrastructures: int, used_infra_supernets: set[IPNetwork]
+        used_networks: set[IPNetwork], number_of_infrastructures: int, used_infra_supernets: set[IPNetwork]
 ) -> list[IPNetwork]:
     """
     Return available subnets(supernets) for infrastructures.
@@ -114,7 +114,7 @@ async def get_available_networks_for_infras(
 
 
 async def generate_infrastructure_subnets(
-    supernet: IPNetwork, original_networks: list[IPNetwork], used_networks: set[IPNetwork]
+        supernet: IPNetwork, original_networks: list[IPNetwork], used_networks: set[IPNetwork]
 ) -> list[IPNetwork]:
     infrastructure_subnets: list[IPNetwork] = []
     for new_subnet in supernet.subnet(original_networks[0].prefixlen):
@@ -127,30 +127,57 @@ async def generate_infrastructure_subnets(
     return infrastructure_subnets
 
 
-async def pull_images(docker_client: DockerClient, images: set[str]) -> None:
-    """
-    Pull docker images that will be used in the infrastructure.
-    :return:
-    """
-    logger.debug(f"Pulling docker images")
-    async with asyncio.TaskGroup() as tg:
-        for image in images:
-            tg.create_task(pull_image(docker_client, image))
-
-
 async def pull_image(docker_client: DockerClient, image: str):
-    try:
-        await asyncio.to_thread(docker_client.images.get, image)
-    except docker.errors.ImageNotFound:
-        logger.info(f"pulling image", image=image)
-        for _ in range(3):
-            try:
-                await asyncio.to_thread(docker_client.images.pull, image)
-                break
-            except docker.errors.DockerException as err:  # TODO: find out what exception is thrown during unreachable image pull source (Server Timeout)
-                logger.error(f"Could not pull image {image} due to {err}... retrying")
-                await asyncio.sleep(1)
+    logger.info(f"pulling image", image=image)
+    for _ in range(3):
+        try:
+            await asyncio.to_thread(docker_client.images.pull, image)
+            return
+        except docker.errors.DockerException as err:  # TODO: find out what exception is thrown during unreachable image pull source (Server Timeout)
+            logger.error(f"Could not pull image {image} due to {err}... retrying")
+            await asyncio.sleep(1)
+    raise docker.errors.ImageNotFound(f"Could not pull image {image}")
 
+
+async def get_image(docker_client: DockerClient, image: Image, db_session: AsyncSession):
+    """
+    Pull image from repository or build it using CIF
+    :param docker_client: client for docker rest api
+    :param image: image to get
+    :param db_session: database session
+    """
+    try:
+        await asyncio.to_thread(docker_client.images.get, image.name)
+        image.state = ImageState.ready
+        await db_session.commit()
+    except docker.errors.ImageNotFound:
+        image.state = ImageState.building
+        await db_session.commit()
+        if image.pull:
+            await pull_image(docker_client, image.name)
+            image.state = ImageState.ready
+            await db_session.commit()
+        else:
+            image_variables = {}
+            image_services = []
+            for service in image.services:
+                image_services.append(service.type)
+                image_variables.update(service.variable_override)
+
+            if forbidden_services := cif.helpers.check_for_forbidden_services(image_services):
+                logger.warning(f"Image contains forbidden services: {forbidden_services}")
+
+            # hotfix for incomplete cif services
+            image_services = [service for service in image_services if service not in forbidden_services]
+
+            logger.info(f"Building image with services {image_services}")
+            await asyncio.to_thread(
+                cif.build, repository="cif",
+                      services=image_services,
+                      variables=image_variables,
+                      actions=[], firehole_config=image.firehole_config, image_tag=image.name)
+            image.state = ImageState.ready
+            await db_session.commit()
 
 async def check_running_tasks(name: str):
     loop = asyncio.get_running_loop()

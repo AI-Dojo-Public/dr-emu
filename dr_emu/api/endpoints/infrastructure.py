@@ -65,7 +65,7 @@ async def get_infra(infrastructure_id: int, session: DBSession):
         attackers = {}
         for node in infrastructure.nodes:
             if type(node) is Attacker:
-                for service in node.services:
+                for service in node.service_containers:
                     if type(service) is ServiceAttacker:
                         attackers[node.name] = service.environment["CRYTON_WORKER_NAME"]
 

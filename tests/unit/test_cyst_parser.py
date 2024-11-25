@@ -1,15 +1,14 @@
 import pytest
+from frozendict import frozendict
 from pytest_mock import MockerFixture
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, Mock, call, MagicMock
 
-from parser.lib.containers import ServiceTag
 from shared import constants
 from parser.cyst_parser import CYSTParser
-from parser.lib.simple_models import Network, Node, Service
+from parser.lib.simple_models import Network, Node, Service, ServiceContainer, NodeType
 from cyst.api.configuration import NodeConfig, RouterConfig, PassiveServiceConfig
 from netaddr import IPAddress, IPNetwork
-from parser.lib import containers, simple_models
-
+from parser.lib import containers
 
 @pytest.fixture()
 def network():
@@ -112,47 +111,83 @@ class TestCYSTParser:
             assert self.parser.networks[i].name == network_names[i]
 
     async def test_parse_nodes(self, mocker: MockerFixture):
-        services_mock = [Mock(spec=simple_models.Service, container=Mock()), Mock(spec=simple_models.Service, container=Mock())]
-        service_tags_mock = [Mock(spec=containers.ServiceTag), Mock(spec=containers.ServiceTag)]
-        node_container_mock = Mock()
-        mocker.patch(f"{self.path}.CYSTParser._parse_services",
-                     side_effect=AsyncMock(return_value=(services_mock, service_tags_mock)))
-        mocker.patch(f"{self.path}.containers.match_node_container", return_value=node_container_mock)
-        mock_interface = mocker.patch(f"{self.path}.Interface", return_value=Mock())
-        find_network_mock = mocker.patch(f"{self.path}.CYSTParser._find_network")
+        # Create parser mock and setup attributes
+        self.parser._find_network = AsyncMock(return_value=Mock())
+        services_mock = [Mock(spec=Service), Mock(spec=Service)]
+        self.parser._parse_services = AsyncMock(return_value=services_mock)
+        self.parser.create_image = AsyncMock(return_value="image_id")
 
+        # Sample cyst_nodes and exploits
         cyst_nodes = [
             Mock(
-                id="node",
-                interfaces=[Mock(net=IPNetwork("127.0.0.0/24"), ip=IPAddress("127.0.0.1"))],
+                id="node1",
+                interfaces=[Mock(ip="192.168.1.1", net="net1")],
+                active_services=[Mock(name="service1")],
+                passive_services=[Mock(name="service2")]
+            ),
+            Mock(
+                id="node2",
+                interfaces=[Mock(ip="192.168.1.2", net="net2")],
                 active_services=[],
-                passive_services=[],
-            )
+                passive_services=[Mock(name="service3")]
+            ),
         ]
 
-        await self.parser._parse_nodes(cyst_nodes)
+        exploits = [
+            Mock(services=[MagicMock(name="vuln_service"), MagicMock(name="bash")]),
+            Mock(services=[MagicMock(name="service2")])
+        ]
 
-        for i in range(len(cyst_nodes)):
-            assert self.parser.nodes[i].interfaces[0].network == mock_interface.return_value.network
-            assert self.parser.nodes[i].interfaces[0].ip == mock_interface.return_value.ip
-            assert self.parser.nodes[i].services == services_mock
-            assert self.parser.nodes[i].service_tags == service_tags_mock
-            assert self.parser.nodes[i].name == cyst_nodes[i].id
-            assert self.parser.nodes[i].container == node_container_mock
+        for exploit in exploits:
+            for service in exploit.services:
+                service.name = service._mock_name  # Ensures name is a direct string
 
-        assert isinstance(self.parser.nodes[0], Node)
-        find_network_mock.assert_awaited_with(IPNetwork("127.0.0.0/24"))
+        mocker.patch.dict('parser.lib.containers.NODES', {
+            "node1": Mock(interfaces=[], image="existing_image", service_containers=[Mock(image="service_image")])
+        })
+
+        predefined_nodes = {
+            "node1": Mock(interfaces=[], image="existing_image", service_containers=[Mock(image="service_image")])
+        }
+        mocker.patch.dict('parser.lib.containers.NODES', predefined_nodes)
+        # Run the function
+        await self.parser._parse_nodes(cyst_nodes, exploits)
+
+        # Assertions for existing node
+        assert self.parser._find_network.await_count == len(cyst_nodes[0].interfaces) + len(cyst_nodes[1].interfaces)
+        assert self.parser.nodes[0] == predefined_nodes["node1"]
+        assert "existing_image" in self.parser.docker_images
+        assert "service_image" in self.parser.docker_images
+
+        # Check if services and images were processed for the new node (node2)
+        self.parser._parse_services.assert_awaited_once_with(
+            cyst_nodes[1].active_services + cyst_nodes[1].passive_services, {"vuln_service", "service2"}
+        )
+        self.parser.create_image.assert_awaited_once_with(services=services_mock)
+
+        # Assertions for new node creation and addition
+        assert len(self.parser.nodes) == 2
+        assert self.parser.nodes[1].name == "node2"
+        assert self.parser.nodes[1].image == "image_id"
+        assert self.parser.nodes[1].type == NodeType.DEFAULT
 
     async def test_parse_services(self, mocker: MockerFixture):
-        cyst_service = Mock(id="service", type="test_type", version="test", spec=PassiveServiceConfig)
-        service_container_mock = Mock(spec=containers.ServiceContainer)
-        mocker.patch(f"{self.path}.containers.match_service_container", return_value=[service_container_mock])
-        mock_uuid1 = mocker.patch(f"{self.path}.uuid1", return_value="uuid")
+        exploits = {"test_type", "vuln_service2"}
+        cyst_services = [
+            Mock(id="service", type="test_type", version="test", spec=PassiveServiceConfig),
+            Mock(id="ssh", type="ssh", spec=PassiveServiceConfig)
+        ]
+        predefined_services = {
+            "ssh": Service(type="ssh", variable_override=frozendict(SSH_PORT=22, SSH_HOST="0.0.0.0"), cves="")
+        }
+        mocker.patch.dict('parser.lib.containers.SERVICES', predefined_services)
+        mocker.patch('parser.lib.containers.EXPLOITS', exploits)
+        services = await self.parser._parse_services(cyst_services, exploits)
 
-        services, service_tags = await self.parser._parse_services([cyst_service])
-
-        assert services == [Service(mock_uuid1.return_value, service_container_mock)]
-        assert service_tags == [ServiceTag(type="test_type", version="test")]
+        assert services == [
+            Service(type="test_type", version="test",  cves="cve_placeholder;"),
+            Service(type="ssh", variable_override=frozendict(SSH_PORT=22, SSH_HOST="0.0.0.0"), cves="")
+        ]
 
     @pytest.mark.parametrize(
         "router, router_type",
@@ -190,42 +225,32 @@ class TestCYSTParser:
 
         parse_networks_mock.assert_awaited_once_with(routers)
         parse_routers_mock.assert_awaited_once_with(routers)
-        parse_nodes_mock.assert_awaited_once_with(nodes)
+        parse_nodes_mock.assert_awaited_once_with(nodes, [])
 
 
-@pytest.mark.asyncio
-class TestContainers:
-    async def test_match_exact_node(self):
-        mock_container_a = containers.NodeContainer("",
-                                                    services=[containers.ServiceTag("x"), containers.ServiceTag("y")])
-        mock_container_b = containers.NodeContainer("", services=[containers.ServiceTag("x")])
-        containers.CONTAINER_DB = [mock_container_a, mock_container_b]
-        match_rules = [containers.ServiceTag("x")]
+# @pytest.mark.asyncio
+# class TestContainers:
+#     async def test_match_exact_node(self):
+#         mock_container_a = containers.NodeContainer("",
+#                                                     services=[Service("x"), Service("y")])
+#         mock_container_b = containers.NodeContainer("", services=[Service("x")])
+#         containers.CONTAINER_DB = [mock_container_a, mock_container_b]
+#         match_rules = [Service("x")]
+#
+#         result = await containers.match_node_container(match_rules)
+#
+#         assert result == mock_container_b
 
-        result = await containers.match_node_container(match_rules)
+    # async def test_match_closest_node(self):
+    #     mock_container_a = containers.NodeContainer(
+    #         "", services=[Service("x"), Service("y"), Service("z")]
+    #     )
+    #     mock_container_b = containers.NodeContainer("",
+    #                                                 services=[Service("x"), Service("y")])
+    #     containers.CONTAINER_DB = [mock_container_a, mock_container_b]
+    #     match_rules = [Service("x")]
+    #
+    #     result = await containers.match_node_container(match_rules)
+    #
+    #     assert result == mock_container_b
 
-        assert result == mock_container_b
-
-    async def test_match_closest_node(self):
-        mock_container_a = containers.NodeContainer(
-            "", services=[containers.ServiceTag("x"), containers.ServiceTag("y"), containers.ServiceTag("z")]
-        )
-        mock_container_b = containers.NodeContainer("",
-                                                    services=[containers.ServiceTag("x"), containers.ServiceTag("y")])
-        containers.CONTAINER_DB = [mock_container_a, mock_container_b]
-        match_rules = [containers.ServiceTag("x")]
-
-        result = await containers.match_node_container(match_rules)
-
-        assert result == mock_container_b
-
-    async def test_match_services(self):
-        mock_container_a = containers.ServiceContainer("", tag=containers.ServiceTag("x"))
-        mock_container_b = containers.ServiceContainer("", tag=containers.ServiceTag("y"))
-        mock_container_c = containers.ServiceContainer("", tag=containers.ServiceTag("z"))
-        containers.SERVICE_CONTAINERS = [mock_container_a, mock_container_b, mock_container_c]
-        match_rules = [containers.ServiceTag("x"), containers.ServiceTag("y")]
-
-        result = await containers.match_service_container(match_rules)
-
-        assert result == [mock_container_a, mock_container_b]

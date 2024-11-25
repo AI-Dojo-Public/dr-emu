@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import enum
+from enum import Enum
 from abc import abstractmethod
 from typing import Optional, Any, reveal_type
+from uuid import uuid1
 
 import docker.types
 from docker import DockerClient
 from docker.errors import NotFound, APIError
 from docker.models.containers import Container
 from docker.models.networks import Network as DockerNetwork
-from docker.types import IPAMPool, IPAMConfig
 from docker.models.resource import Collection, Model
+from docker.types import IPAMPool, IPAMConfig
 from netaddr import IPAddress, IPNetwork
 from sqlalchemy import ForeignKey, String, JSON, Column, Table
 from sqlalchemy.ext.asyncio import AsyncAttrs
@@ -20,12 +21,13 @@ from sqlalchemy.orm import (
     relationship,
     mapped_column,
     Mapped,
+    MappedAsDataclass, declared_attr, validates
 )
 from sqlalchemy_utils import force_instant_defaults, ScalarListType, JSONType
 
-from shared import constants
-from dr_emu.settings import settings
 from dr_emu.lib.logger import logger
+from dr_emu.settings import settings
+from shared import constants
 
 # TODO: add init methods with defaults to models instead of this?
 force_instant_defaults()
@@ -40,7 +42,7 @@ class DockerMixin:
     Base class for docker models
     """
 
-    docker_id: Mapped[str] = mapped_column()
+    docker_id: Mapped[str] = mapped_column(nullable=True)
     name: Mapped[str] = mapped_column(unique=True)
     _client: DockerClient | None = None
     kwargs: Mapped[Optional[dict[Any, Any]]] = mapped_column(JSONType, nullable=True)
@@ -82,12 +84,16 @@ class DockerContainerMixin(DockerMixin):
     Base class for docker container models
     """
 
-    image: Mapped[str] = mapped_column()
     environment: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=True)
     command: Mapped[str] = mapped_column(ScalarListType, nullable=True)
     healthcheck: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=True)
     detach: Mapped[bool] = mapped_column(default=True)
     tty: Mapped[bool] = mapped_column(default=True)
+    image_id = mapped_column(ForeignKey("image.id"))
+
+    @declared_attr
+    def image(self) -> Mapped["Image"]:
+        return relationship("Image")
 
     @abstractmethod
     async def create(self):
@@ -251,6 +257,10 @@ class Appliance(DockerContainerMixin, Base):
     }
 
     @property
+    def services(self) -> set[Service]:
+        return self.image.services
+
+    @property
     def cap_add(self) -> list[str]:
         return self._cap_add.split(";")
 
@@ -303,7 +313,7 @@ class Appliance(DockerContainerMixin, Base):
         self.docker_id = (
             await asyncio.to_thread(
                 self.client.api.create_container,
-                self.image,
+                self.image.name,
                 name=self.name,
                 tty=self.tty,
                 detach=self.detach,
@@ -364,7 +374,7 @@ class Infrastructure(Base):
         for node in self.nodes:
             for volume in node.volumes:
                 volumes.add(volume)
-            for service in node.services:
+            for service in node.service_containers:
                 for service_volume in service.volumes:
                     volumes.add(service_volume)
         return volumes
@@ -505,11 +515,11 @@ class Node(Appliance):
     __tablename__ = "node"
 
     id: Mapped[int] = mapped_column(ForeignKey("appliance.id"), primary_key=True)
-    _service_tags = mapped_column("service_tags", JSONType, default=[])
-    services: Mapped[list["Service"]] = relationship(back_populates="parent_node", cascade="all, delete-orphan")
+    service_containers: Mapped[list["ServiceContainer"]] = relationship(back_populates="parent_node",
+                                                                        cascade="all, delete-orphan")
     ipc_mode: Mapped[str] = mapped_column(default="shareable", nullable=True)
     infrastructure: Mapped["Infrastructure"] = relationship(back_populates="nodes")
-    depends_on: Mapped[dict[str, str]] = mapped_column(JSONType, default={})
+    depends_on: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict())
     config_instructions: list[str] | list[list[str]] = []
     __mapper_args__ = {
         "polymorphic_identity": "node",
@@ -553,9 +563,9 @@ class Node(Appliance):
         container = await self.get()
 
         setup_instructions = [
-            "ip route del default",
-            f"ip route add default via {str(self.interfaces[0].network.router_gateway)}",
-        ] + self.config_instructions
+                                 "ip route del default",
+                                 f"ip route add default via {str(self.interfaces[0].network.router_gateway)}",
+                             ] + self.config_instructions
 
         for instruction in setup_instructions:
             await asyncio.to_thread(container.exec_run, cmd=instruction, privileged=True, user="0")  # type: ignore
@@ -588,14 +598,14 @@ class Node(Appliance):
         Create services in form of docker containers, that should be connected to this Node.
         :return:
         """
-        return {asyncio.create_task(service.create()) for service in self.services}
+        return {asyncio.create_task(service.create()) for service in self.service_containers}
 
     async def start_services(self) -> set[asyncio.Task[None]]:
         """
         Create services in form of docker containers, that should be connected to this Node.
         :return:
         """
-        return {asyncio.create_task(service.start()) for service in self.services}
+        return {asyncio.create_task(service.start()) for service in self.service_containers}
 
     async def delete(self) -> None:
         """
@@ -613,7 +623,7 @@ class Node(Appliance):
         Delete docker containers representing services connected to this Node.
         :return:
         """
-        return {asyncio.create_task(service.delete()) for service in self.services}
+        return {asyncio.create_task(service.delete()) for service in self.service_containers}
 
 
 class Attacker(Node):
@@ -660,35 +670,29 @@ class Dns(Node):
     }
 
 
-# class Firehole(Node):
-#     __mapper_args__ = {
-#         "polymorphic_identity": "firehole",
-#     }
-
-
 services_volumes = Table(
     "services_volumes",
     Base.metadata,
-    Column("service_id", ForeignKey("service.id"), primary_key=True),  # type: ignore
+    Column("service_container_id", ForeignKey("service_container.id"), primary_key=True),  # type: ignore
     Column("volume_id", ForeignKey("volume.id"), primary_key=True),  # type: ignore
 )
 
 
-class Service(DockerContainerMixin, Base):
+class ServiceContainer(DockerContainerMixin, Base):
     """
     Service model representing docker container acting as a service running on Node, connected via network_mode.
     """
 
-    __tablename__ = "service"
+    __tablename__ = "service_container"
 
     parent_node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
-    parent_node: Mapped["Node"] = relationship(back_populates="services")
+    parent_node: Mapped["Node"] = relationship(back_populates="service_containers")
     dependencies: Mapped[list["DependsOn"]] = relationship(  # TODO: is this the same as depends_on in Node?
         back_populates="dependant",
         foreign_keys="DependsOn.dependant_service_id",
         cascade="all, delete-orphan",
     )
-    volumes: Mapped[list["Volume"]] = relationship(secondary=services_volumes, back_populates="services")
+    volumes: Mapped[list["Volume"]] = relationship(secondary=services_volumes, back_populates="service_containers")
     model_type: Mapped[str]
 
     __mapper_args__ = {
@@ -714,7 +718,7 @@ class Service(DockerContainerMixin, Base):
             volumes.append(f"{volume.name}:{volume.bind}")
         container = await asyncio.to_thread(
             self.client.containers.create,
-            image=self.image,
+            image=self.image.name,
             name=self.name,
             detach=self.detach,  # type: ignore
             network_mode=f"container:{self.parent_node.name}",
@@ -805,14 +809,14 @@ class Service(DockerContainerMixin, Base):
         return True
 
 
-class ServiceAttacker(Service):
+class ServiceAttacker(ServiceContainer):
     __mapper_args__ = {
         "polymorphic_on": "model_type",
         "polymorphic_identity": "attacker",
     }
 
 
-class ContainerState(enum.Enum):
+class ContainerState(Enum):
     service_healthy = constants.SERVICE_HEALTHY
     service_started = constants.SERVICE_STARTED
 
@@ -821,12 +825,11 @@ class DependsOn(Base):
     """Class for dependency container startup"""
 
     __tablename__ = "depends_on"
-    dependant_service_id: Mapped[int] = mapped_column(ForeignKey("service.id"))
-    dependency_service_id: Mapped[int] = mapped_column(ForeignKey("service.id"))
-
-    dependant: Mapped["Service"] = relationship(back_populates="dependencies", foreign_keys=[dependant_service_id])
-    dependency: Mapped["Service"] = relationship(foreign_keys=[dependency_service_id])
-
+    dependant_service_id: Mapped[int] = mapped_column(ForeignKey("service_container.id"))
+    dependency_service_id: Mapped[int] = mapped_column(ForeignKey("service_container.id"))
+    dependant: Mapped["ServiceContainer"] = relationship(back_populates="dependencies",
+                                                         foreign_keys=[dependant_service_id])
+    dependency: Mapped["ServiceContainer"] = relationship(foreign_keys=[dependency_service_id])
     state: Mapped[ContainerState] = mapped_column()
 
 
@@ -859,7 +862,8 @@ class Volume(DockerMixin, Base):
     bind: Mapped[str] = mapped_column()  # Place where the volume will be mounted inside the container
     local: Mapped[bool] = mapped_column()
     appliances: Mapped[list["Appliance"]] = relationship(back_populates="volumes", secondary=appliances_volumes)
-    services: Mapped[list["Service"]] = relationship(back_populates="volumes", secondary=services_volumes)
+    service_containers: Mapped[list["ServiceContainer"]] = relationship(back_populates="volumes",
+                                                                        secondary=services_volumes)
 
     async def create(self):
         """
@@ -882,3 +886,72 @@ class Volume(DockerMixin, Base):
         """
         volume = await self.get()
         volume.remove(force=True)
+
+
+images_services = Table(
+    "images_services",
+    Base.metadata,
+    Column("service_id", ForeignKey("service.id"), primary_key=True),  # type: ignore
+    Column("image_id", ForeignKey("image.id"), primary_key=True),  # type: ignore
+)
+
+
+class Service(MappedAsDataclass, Base):
+    __tablename__ = "service"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
+    type: Mapped[str] = mapped_column()
+    variable_override: Mapped[dict[str, str | int]] = mapped_column(JSONType, default_factory=dict)
+    version: Mapped[str] = mapped_column(default="")
+    cves: Mapped[str] = mapped_column(default="")
+    images: Mapped[list["Image"]] = relationship(back_populates="services", init=False, secondary=images_services)
+
+    # accounts: Mapped[list["Account"]] = relationship(back_populates="service")
+
+    def __key(self):
+        instance_key = [self.type, self.version, self.cves]
+        for key, value in self.variable_override.items():
+            instance_key.append(f"{key}:{value}")
+        return tuple(instance_key)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        if isinstance(other, Service):
+            return self.__key() == other.__key()
+        return NotImplemented
+
+class ImageState(Enum):
+    initialized = "initialized"
+    building = "building"
+    ready = "ready"
+
+class Image(MappedAsDataclass, Base):
+    __tablename__ = "image"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
+    services: Mapped[set["Service"]] = relationship(back_populates="images", secondary=images_services)
+    firehole_config: Mapped[str] = mapped_column(default="")
+    pull: Mapped[bool] = mapped_column(default=False)
+    name: Mapped[str] = mapped_column(unique=True, default=None)
+    state: Mapped[ImageState] = mapped_column(default=ImageState.initialized)
+
+    def __key(self):
+        instance_key = [self.firehole_config, self.pull]
+        for service in self.services:
+            instance_key += [service.type, service.version, service.cves]
+            for key, value in service.variable_override.items():
+                instance_key.append(f"{key}:{value}")
+        return tuple(instance_key)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        if isinstance(other, Image):
+            return self.__key() == other.__key()
+        return NotImplemented
+
+    def __post_init__(self):
+        if self.name is None:
+            self.name = str(uuid1())
+

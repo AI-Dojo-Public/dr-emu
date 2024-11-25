@@ -1,15 +1,12 @@
-import asyncio
-
-from docker.errors import ImageNotFound, APIError, NotFound
+from docker.errors import ImageNotFound, APIError
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import NoResultFound
 
 from dr_emu.api.dependencies.core import DBSession
 from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers import run as run_controller
-from dr_emu.lib.util import check_running_tasks
 from dr_emu.schemas.run import Run, RunOut, RunInfo
-from dr_emu.lib.logger import logger
+from dr_emu.settings import settings
 
 from shared import constants
 
@@ -86,12 +83,6 @@ async def start_run(session: DBSession, run_id: int, instances: int = 1):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id)
         )
-    except (ImageNotFound, RuntimeError, APIError, TypeError) as ex:
-        await run_controller.stop_run(run_id, session)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
-    except Exception as err:
-        await run_controller.stop_run(run_id, session)
-        raise err
 
     return {"message": f"{instances} Run instances started"}
 

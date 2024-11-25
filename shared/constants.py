@@ -1,11 +1,13 @@
 import pathlib
 
 project_root_path = pathlib.Path(__file__).absolute().parent.parent
+firehole_config_path = project_root_path / "demos" / "2025" / "firehole_configs"
 resources_path = project_root_path / "resources"
 
 TEMPLATE = "Template"
 RUN = "Run"
 INFRASTRUCTURE = "Infrastructure"
+IMAGE = "Image"
 
 # Router types
 ROUTER_TYPE_PERIMETER = "perimeter"

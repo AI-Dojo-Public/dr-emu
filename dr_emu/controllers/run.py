@@ -1,13 +1,22 @@
 import asyncio
 from typing import Sequence
 
+from docker.errors import ImageNotFound, APIError
 from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import joinedload
+
+from fastapi import APIRouter, HTTPException, status
+
+from dr_emu.settings import settings
+from dr_emu.api.helpers import nonexistent_object_msg
 from dr_emu.controllers.infrastructure import InfrastructureController
 from dr_emu.lib.logger import logger
-from dr_emu.models import Run, Template, Instance, Infrastructure, Node, Service
+from dr_emu.models import Run, Template, Instance, Infrastructure, Node, ServiceContainer
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from shared import constants
 
 
 async def create_run(name: str, template_id: int, db_session: AsyncSession) -> Run:
@@ -99,10 +108,16 @@ async def start_run(run_id: int, number_of_instances: int, db_session: AsyncSess
     """
 
     run = (await db_session.execute(select(Run).where(Run.id == run_id))).scalar_one()
-
-    run_instances = await InfrastructureController.build_infras(number_of_instances, run, db_session)
-    db_session.add_all(run_instances)
-    await db_session.commit()
+    try:
+        run_instances = await InfrastructureController.build_infras(number_of_instances, run, db_session)
+        db_session.add_all(run_instances)
+        await db_session.commit()
+    except* (ImageNotFound, RuntimeError, APIError, TypeError) as ex:
+        if settings.debug:
+            raise ex
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
+    except* Exception as err:
+        raise err
 
 
 async def stop_run(run_id: int, db_session: AsyncSession):
@@ -126,7 +141,7 @@ async def stop_run(run_id: int, db_session: AsyncSession):
                         joinedload(Infrastructure.routers),
                         joinedload(Infrastructure.networks),
                         joinedload(Infrastructure.nodes).options(
-                            joinedload(Node.services).joinedload(Service.volumes), joinedload(Node.volumes)
+                            joinedload(Node.service_containers).joinedload(ServiceContainer.volumes), joinedload(Node.volumes)
                         ),
                     )
                 )

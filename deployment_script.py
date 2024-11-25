@@ -37,10 +37,8 @@ def create_run(template_id: int) -> dict:
 
 
 async def start_run(run_id: int, instances: int = 1):
-    data = {"instances": instances, "supernet": "10.0.0.0/8", "subnets_mask": 24}
     async with httpx.AsyncClient() as client:
-        run_start = await client.post(f"http://127.0.0.1:8000/runs/start/{run_id}/?instances={instances}", data=json.dumps(data), timeout=None)
-
+        run_start = await client.post(f"http://127.0.0.1:8000/runs/start/{run_id}/?instances={instances}", timeout=None)
     if run_start.status_code != 200:
         raise RuntimeError(f"message: {run_start.text}, code: {run_start.status_code}")
     else:
