@@ -8,6 +8,7 @@ from sqlalchemy.orm import joinedload
 from dr_emu.lib.logger import logger
 from dr_emu.models import Image, ImageState
 
+# TODO:
 # async def create_image(name: str, services: list[dict[str, str]], db_session: AsyncSession) -> Image:
 #     """
 #     Create Image and save it to DB.

@@ -2,8 +2,6 @@ from enum import Enum
 from typing import Any
 
 from frozendict import frozendict
-from packaging.version import Version
-
 
 from netaddr import IPNetwork, IPAddress
 from dataclasses import dataclass, field, asdict
@@ -13,19 +11,6 @@ from dr_emu.models import (
     Attacker as DockerAttacker,
     Dns as DockerDns,
 )
-
-
-# @dataclass
-# class Service:
-#     """
-#     Tag used to match a single service and possibly a version.
-#     """
-#
-#     type: str
-#     version: str = ""
-#     cves: list[str] = field(default_factory=list)
-#     variable_override: dict[str, str | int] = field(default_factory=dict)
-#     depends_on: set["ServiceTag"] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -68,17 +53,6 @@ class Volume:
     name: str  # Name of volume / Path on host
     bind: str  # Path on container
     local: bool = False
-
-
-# @dataclass
-# class Image:
-#     """
-#     Serializable alternative for DB model.
-#     """
-#
-#     tag: str
-#     services: list[Service]
-#     firehole_config: str = ""
 
 
 @dataclass
@@ -188,6 +162,3 @@ class Node(Container):
     interfaces: list[Interface] = field(default_factory=list)
     service_containers: list[ServiceContainer] = field(default_factory=list)  # service containers
     type: NodeType = NodeType.DEFAULT
-
-
-
