@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from dr_emu.middleware import middleware
 from dr_emu.settings import settings
 from dr_emu.database_config import sessionmanager
-from dr_emu.api.endpoints import run, infrastructure, template
+from dr_emu.api.endpoints import run, infrastructure, template, image
 
 
 @asynccontextmanager
@@ -29,6 +29,7 @@ app = FastAPI(
 app.include_router(run.router)
 app.include_router(infrastructure.router)
 app.include_router(template.router)
+app.include_router(image.router)
 
 
 @app.get("/")

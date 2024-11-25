@@ -7,7 +7,7 @@ from netaddr import IPNetwork, IPAddress
 from pytest_mock import MockerFixture
 
 from dr_emu.controllers.infrastructure import InfrastructureController
-from dr_emu.models import Infrastructure, Network, Interface
+from dr_emu.models import Infrastructure, Network, Interface, ImageState
 from shared import constants
 
 
@@ -130,48 +130,86 @@ class TestInfrastructureController:
         assert infra_controller == infra_controller_mock
 
     async def test_create_controller(self, mocker: MockerFixture):
-        cyst_parser_mock = AsyncMock()
-        networks = [Mock()]
-        routers = [Mock()]
-        nodes = [Mock(interfaces=[Mock()])]
-        volumes = [Mock()]
-        bake_models_mock = mocker.patch.object(
-            cyst_parser_mock, "bake_models", return_value=(networks, routers, nodes, volumes)
-        )
-        generate_infrastructure_subnets_mock = mocker.patch(f"{self.file_path}.util.generate_infrastructure_subnets")
-
-        infrastructure_mock = Mock(supernet=IPNetwork("127.0.0.0/16"))
-        controller_mock = AsyncMock()
-        prepare_controller_mock = mocker.patch(
-            f"{self.controller_path}.prepare_controller_for_infra_creation",
-            return_value=controller_mock,
-        )
-        change_names_mock = mocker.patch.object(controller_mock, "change_names")
-
+        # Mocks for inputs
+        parser_mock = AsyncMock()
+        db_session_mock = AsyncMock()
+        docker_client_mock = Mock()
+        infrastructure_mock = Mock(supernet=IPNetwork("127.0.0.0/16"), name="test_infra")
+        used_docker_networks = {Mock()}
         docker_container_names = {"container_name"}
         docker_network_names = {"network_name"}
-        used_docker_networks = {Mock()}
-        infra_name = "test_infra"
 
-        controller_result = await InfrastructureController.create_controller(
-            infrastructure_mock,
-            used_docker_networks,
-            cyst_parser_mock,
-            docker_container_names,
-            docker_network_names,
+        # Mocked return values for parser.bake_models
+        networks = [Mock()]
+        routers = [Mock()]
+        nodes = [Mock(interfaces=[Mock(ipaddress="192.168.1.1")])]
+        volumes = [Mock()]
+        images = [Mock(id="image_1"), Mock(id="image_2"), Mock(id="image_3")]
+        parser_mock.bake_models.return_value = (networks, routers, nodes, volumes, images)
+
+        # Other mocks
+        db_session_mock.delete = AsyncMock()
+        db_session_mock.commit = AsyncMock()
+        ensure_image_exists_mock = mocker.patch(
+            f"{self.file_path}.InfrastructureController.ensure_image_exists", return_value=AsyncMock()
         )
-        bake_models_mock.assert_awaited_once()
+        generate_subnets_mock = mocker.patch(
+            f"{self.file_path}.util.generate_infrastructure_subnets", return_value=Mock()
+        )
+        prepare_controller_mock = mocker.patch(
+            f"{self.controller_path}.prepare_controller_for_infra_creation", return_value=AsyncMock()
+        )
+        configure_dns_mock = mocker.patch.object(
+            InfrastructureController, "configure_dns", return_value=AsyncMock()
+        )
+        change_names_mock = mocker.patch.object(
+            prepare_controller_mock.return_value, "change_names"
+        )
+        logger_debug_mock = mocker.patch(f"{self.file_path}.logger.debug")
+
+        # Execute the method
+        result = await InfrastructureController.create_controller(
+            infrastructure=infrastructure_mock,
+            used_docker_networks=used_docker_networks,
+            parser=parser_mock,
+            docker_container_names=docker_container_names,
+            docker_network_names=docker_network_names,
+            db_session=db_session_mock,
+            docker_client=docker_client_mock,
+        )
+
+        # Assertions
+        parser_mock.bake_models.assert_awaited_once_with(db_session_mock, infrastructure_mock.name)
+
+        # TaskGroup validation
+        ensure_image_exists_mock.assert_has_calls(
+            [call("image_1", docker_client_mock), call("image_2", docker_client_mock),
+             call("image_3", docker_client_mock)]
+        )
+
+        # Validate deletion and commit upon exception (simulated as no exception occurs here)
+        db_session_mock.delete.assert_not_awaited()
+
+        generate_subnets_mock.assert_awaited_once_with(
+            infrastructure_mock.supernet, list(parser_mock.networks_ips), used_docker_networks
+        )
         prepare_controller_mock.assert_called_once_with(
-            available_networks=generate_infrastructure_subnets_mock.return_value,
+            available_networks=generate_subnets_mock.return_value,
             infrastructure=infrastructure_mock,
         )
+        configure_dns_mock.assert_awaited_once_with(nodes)
         change_names_mock.assert_awaited_once_with(
             container_names=docker_container_names, network_names=docker_network_names, volumes=volumes
         )
-        generate_infrastructure_subnets_mock.assert_awaited_once_with(
-            infrastructure_mock.supernet, list(cyst_parser_mock.network_ips), used_docker_networks
+
+        # Validate logger debug call
+        logger_debug_mock.assert_called_once_with(
+            "Docker names changed",
+            infrastructure_name=infrastructure_mock.name,
         )
-        assert controller_result == controller_mock
+
+        # Final result validation
+        assert result == prepare_controller_mock.return_value
 
     @pytest.fixture
     def docker_client_mock(self):
@@ -201,7 +239,6 @@ class TestInfrastructureController:
             f"{self.file_path}.util.get_available_networks_for_infras",
             return_value=available_infra_supernets,
         )
-        pull_images_mock = mocker.patch(f"{self.file_path}.util.pull_images")
         used_docker_networks = {IPNetwork(
             docker_client_mock.networks.get.return_value.attrs["IPAM"]["Config"][0]["Subnet"]
         )}
@@ -225,7 +262,6 @@ class TestInfrastructureController:
         get_container_names_mock.assert_awaited_once_with(docker_client_mock)
         get_network_names_mock.assert_awaited_once_with(docker_client_mock)
         get_available_networks_for_infras_mock.assert_awaited_once_with(used_docker_networks, 2, set())
-        pull_images_mock.assert_awaited_once_with(docker_client_mock, cyst_parser_mock.return_value.docker_images)
         # get_template_mock.assert_awaited_once_with(run_mock.template_id, db_session)
 
         infrastructure_calls = [
@@ -251,6 +287,8 @@ class TestInfrastructureController:
                 cyst_parser_mock.return_value,
                 used_docker_container_names_mock,
                 used_docker_network_names_mock,
+                db_session,
+                docker_client_mock
             ),
             call(
                 infrastructures_mock[1],
@@ -258,6 +296,9 @@ class TestInfrastructureController:
                 cyst_parser_mock.return_value,
                 used_docker_container_names_mock,
                 used_docker_network_names_mock,
+                db_session,
+                docker_client_mock
+
             ),
         ]
         infra_creation_mock.assert_has_calls(infrastructure_calls)
@@ -274,4 +315,3 @@ class TestInfrastructureController:
 
         instance_mock.assert_called_once_with(run=run_mock, infrastructure=infrastructure)
         start_mock.assert_called_once()
-        stop_mock.assert_called_once()

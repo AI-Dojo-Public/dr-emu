@@ -1,9 +1,11 @@
 import asyncio
 import copy
+from asyncio import TaskGroup
 from typing import Sequence
 from uuid import uuid1
 
 import randomname
+from docker import DockerClient
 from sqlalchemy import select
 import docker
 from docker.errors import ImageNotFound, APIError, NullResource, NotFound
@@ -14,7 +16,7 @@ from sqlalchemy.orm import joinedload
 
 from shared import constants
 from dr_emu.lib import util
-from dr_emu.controllers import template as template_controller
+from dr_emu.controllers import template as template_controller, image as image_controller
 from dr_emu.lib.logger import logger
 from dr_emu.models import (
     Infrastructure,
@@ -28,13 +30,15 @@ from dr_emu.models import (
     ServiceAttacker,
     Volume,
     Service,
-    Router
+    Router, ImageState, Image
 )
+from dr_emu.database_config import sessionmanager
 
 from parser.cyst_parser import CYSTParser
 from dr_emu.settings import settings
 from tests.integration.test_rest_api import infrastructure
 
+async_lock = asyncio.Lock()
 
 class InfrastructureController:
     """
@@ -278,7 +282,7 @@ class InfrastructureController:
         containers: list[Service | Node | Router] = [*self.infrastructure.nodes, *self.infrastructure.routers]
         name_pairs: dict[str, str] = {}
         for node in self.infrastructure.nodes:
-            containers += node.services
+            containers += node.service_containers
 
         for container in containers:
             if (new_name := f"{self.infrastructure.name}-{container.name}") in container_names:
@@ -329,7 +333,6 @@ class InfrastructureController:
             run=run,
             infrastructure=self.infrastructure,
         )
-
         try:
             await self.start()
             return run_instance
@@ -339,11 +342,6 @@ class InfrastructureController:
                 infrastructure_name=self.infrastructure.name,
                 exception=str(error),
             )
-            # TODO: Is there an exception where the containers(docker_ids) are created?
-            try:
-                await self.stop()
-            except NullResource:
-                pass
             raise error
 
     @staticmethod
@@ -398,14 +396,46 @@ class InfrastructureController:
             dns_node.config_instructions = [["sh", "-c", f"printf '{updated_config}' >> /etc/coredns/Corefile"]]
 
     @staticmethod
+    async def ensure_image_exists(image_id: int, docker_client: DockerClient):
+        async with sessionmanager.session() as db_session:
+            image = await image_controller.get_image(image_id, db_session)
+            logger.debug("Processing image state", image_name=image.name, state=image.state)
+            if image.state == ImageState.ready:
+                return
+            try:
+                if image.state == ImageState.building:
+                    await image_controller.wait_until_image_is_ready(image, db_session)
+                elif image.state == ImageState.initialized:
+                    await util.get_image(docker_client, image, db_session)
+                await db_session.commit()
+            except Exception as err:
+                logger.error("Failed to get image, deleting from DB", image_name=image.name, exception=str(err))
+                raise err
+
+    @staticmethod
     async def create_controller(
         infrastructure: Infrastructure,
         used_docker_networks: set[IPNetwork],
         parser: CYSTParser,
         docker_container_names: set[str],
         docker_network_names: set[str],
+        db_session: AsyncSession,
+        docker_client: DockerClient,
     ):
-        networks, routers, nodes, volumes = await parser.bake_models()
+        networks, routers, nodes, volumes, images = await parser.bake_models(db_session, infrastructure.name)
+
+        async with async_lock: # TODO: figure out how to make this work without async lock
+            try:
+                async with TaskGroup() as tg:
+                    for image in images:
+                        tg.create_task(InfrastructureController.ensure_image_exists(image.id, docker_client))
+            except Exception as err: # TODO: find out what exception can happen here
+                [await db_session.delete(image) for image in images]
+                await db_session.commit()
+                raise err
+
+
+
         infrastructure.networks, infrastructure.routers, infrastructure.nodes = networks, routers, nodes
 
         available_networks = await util.generate_infrastructure_subnets(
@@ -429,10 +459,10 @@ class InfrastructureController:
         # TODO: Kinda hotfix for unique worker names
         for node in nodes:
             if isinstance(node, Attacker):
-                for service in node.services:
+                for service in node.service_containers:
                     if isinstance(service, ServiceAttacker):
                         service.environment["CRYTON_WORKER_NAME"] = f"attacker_{infrastructure.name}_{service.name}"
-                    elif "metasploit" in service.image:
+                    elif "metasploit" in service.image.name:
                         service.environment["METASPLOIT_LHOST"] = str(node.interfaces[0].ipaddress)
 
         return controller
@@ -447,15 +477,15 @@ class InfrastructureController:
         :return:
         """
 
-        client = docker.from_env()
+        docker_client = docker.from_env()
         used_docker_networks: set[IPNetwork] = set()
         # networks.list doesn't return same objects as networks.get
-        docker_networks = await asyncio.to_thread(client.networks.list)
+        docker_networks = await asyncio.to_thread(docker_client.networks.list)
         for docker_network in docker_networks:
             if docker_network.name in ["none", "host"]:
                 continue
             used_docker_networks.add(
-                IPNetwork(client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"])
+                IPNetwork(docker_client.networks.get(docker_network.id).attrs["IPAM"]["Config"][0]["Subnet"])
             )
 
         logger.info("Building infrastructures")
@@ -464,20 +494,18 @@ class InfrastructureController:
         # check if management (cryton) network exists
         if not settings.ignore_management_network:
             try:
-                client.networks.get(settings.management_network_name)
+                docker_client.networks.get(settings.management_network_name)
             except NotFound:
                 raise RuntimeError(
                     f"Management Network containing Cryton '{settings.management_network_name}' not found"
                 )
 
-        used_docker_container_names = await util.get_container_names(client)
-        used_docker_network_names = await util.get_network_names(client)
+        used_docker_container_names = await util.get_container_names(docker_client)
+        used_docker_network_names = await util.get_network_names(docker_client)
 
         template = await template_controller.get_template(run.template_id, db_session)
         parser = CYSTParser(template.description)
         await parser.parse()
-
-        await util.pull_images(client, parser.docker_images)
 
         infrastructure_names: set[str] = set()
         infrastructures: list[Infrastructure] = []
@@ -512,6 +540,8 @@ class InfrastructureController:
                     parser,
                     used_docker_container_names,
                     used_docker_network_names,
+                    db_session,
+                    docker_client
                 )
             )
 
@@ -538,6 +568,7 @@ class InfrastructureController:
         return instances
 
 
+
     @staticmethod
     async def stop_infra(infrastructure: Infrastructure):
         """
@@ -549,7 +580,6 @@ class InfrastructureController:
 
         # destroy docker objects
         await controller.stop()
-
 
     @staticmethod
     async def delete_infra(infrastructure: Infrastructure, db_session: AsyncSession):
@@ -603,7 +633,7 @@ class InfrastructureController:
                         joinedload(Infrastructure.instance),
                         joinedload(Infrastructure.routers),
                         joinedload(Infrastructure.networks).joinedload(Network.interfaces),
-                        joinedload(Infrastructure.nodes).joinedload(Node.services),
+                        joinedload(Infrastructure.nodes).joinedload(Node.service_containers),
                     )
                 )
             )

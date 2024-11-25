@@ -33,14 +33,14 @@ eg. Infrastructure configuration can have maximum of 256 networks with subnet ma
     responses={201: {"description": "Object successfully created"}},
     response_model=TemplateOut,
 )
-async def create_template(template: TemplateSchema, session: DBSession):
+async def create_template(template_schema: TemplateSchema, session: DBSession):
     """
     responses:
       201:
         description: Template was created
     """
 
-    template = await template_controller.create_template(template.name, template.description, session)
+    template = await template_controller.create_template(template_schema.name, template_schema.description, session)
     return TemplateOut(id=template.id, name=template.name, description=template.description)
 
 
