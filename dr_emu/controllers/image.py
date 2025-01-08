@@ -35,9 +35,7 @@ async def list_images(db_session: AsyncSession) -> Sequence[Image]:
     """
     logger.debug("Listing images")
 
-    images = (await db_session.scalars(select(Image).options(joinedload(Image.services)))).unique().all()
-
-    return images
+    return (await db_session.scalars(select(Image).options(joinedload(Image.services)))).unique().all()
 
 
 async def delete_image(image_id: int, db_session: AsyncSession) -> Image:

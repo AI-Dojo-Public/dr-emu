@@ -74,7 +74,8 @@ private ip range of the **10.0.0.0/8** is available.
     "/start/{run_id}/",
     description=run_start_description,
     )
-async def start_run(session: DBSession, run_id: int, instances: int = 1):
+async def start_run(session: DBSession, run_id: int):
+    instances = 1 # removed from user input until fixed or reimplemented
     try:
         await run_controller.start_run(
             run_id, instances, session

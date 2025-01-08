@@ -204,8 +204,7 @@ node_client_developer = NodeConfig(
                     id="~/.bash_history",
                     description=f"mysqldump -u user -h {node_database.interfaces[0].ip} --password=pass --no-tablespaces table",
                     owner="user",
-                ),
-                DataConfig(id="/etc/passwd", description="users and stuff", owner="user"),
+                )
             ],
         ),
         PassiveServiceConfig(

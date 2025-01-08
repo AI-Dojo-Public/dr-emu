@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 from enum import Enum
 from abc import abstractmethod
+from enum import Enum
 from typing import Optional, Any, reveal_type
 from uuid import uuid1
 
 import docker.types
 from docker import DockerClient
-from docker.errors import NotFound, APIError
+from docker.errors import NotFound, NullResource, APIError
 from docker.models.containers import Container
 from docker.models.networks import Network as DockerNetwork
 from docker.models.resource import Collection, Model
@@ -16,6 +17,7 @@ from docker.types import IPAMPool, IPAMConfig
 from netaddr import IPAddress, IPNetwork
 from sqlalchemy import ForeignKey, String, JSON, Column, Table
 from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import (
     DeclarativeBase,
     relationship,
@@ -28,6 +30,7 @@ from sqlalchemy_utils import force_instant_defaults, ScalarListType, JSONType
 from dr_emu.lib.logger import logger
 from dr_emu.settings import settings
 from shared import constants
+from shared.classes import FileDescription
 
 # TODO: add init methods with defaults to models instead of this?
 force_instant_defaults()
@@ -195,7 +198,7 @@ class Network(DockerMixin, Base):
         """
         try:
             await asyncio.to_thread((await self.get()).remove)
-        except (NotFound, NotFound):
+        except (NotFound, NullResource):
             pass
 
 
@@ -341,7 +344,7 @@ class Appliance(DockerContainerMixin, Base):
         try:
             container = await self.get()
             await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
-        except NotFound:
+        except (NotFound, NullResource):
             pass
 
 
@@ -524,18 +527,6 @@ class Node(Appliance):
     __mapper_args__ = {
         "polymorphic_identity": "node",
     }
-
-    @property
-    def service_tags(self):
-        return self._service_tags
-
-    @service_tags.setter
-    def service_tags(self, service_tags: list[dict[str, Any]]):
-        for service_tag in service_tags:
-            for k, v in service_tag.items():
-                if isinstance(v, set):
-                    service_tag[k] = list(v)
-        self._service_tags = service_tags
 
     async def _create_host_config(self) -> docker.types.HostConfig:
         """
@@ -753,7 +744,7 @@ class ServiceContainer(DockerContainerMixin, Base):
         try:
             container = await self.get()
             await asyncio.to_thread(container.remove, v=True, force=True)  # type: ignore
-        except NotFound:
+        except (NotFound, NullResource):
             pass
 
     async def wait_for_dependency(self, timeout: int = 35) -> bool:
@@ -765,7 +756,7 @@ class ServiceContainer(DockerContainerMixin, Base):
                         self.client.api.inspect_container,
                         dependency_model.dependency.name,
                     )
-                except (NotFound, APIError):
+                except ((NotFound, NullResource), APIError):
                     logger.debug(f"Waiting for dependency container: {dependency_model.dependency.name}")
                     await asyncio.sleep(1)
                     count += 1
@@ -903,8 +894,6 @@ class Service(MappedAsDataclass, Base):
     variable_override: Mapped[dict[str, str | int]] = mapped_column(JSONType, default_factory=dict)
     version: Mapped[str] = mapped_column(default="")
     cves: Mapped[str] = mapped_column(default="")
-    images: Mapped[list["Image"]] = relationship(back_populates="services", init=False, secondary=images_services)
-
     # accounts: Mapped[list["Account"]] = relationship(back_populates="service")
 
     def __key(self):
@@ -921,19 +910,32 @@ class Service(MappedAsDataclass, Base):
             return self.__key() == other.__key()
         return NotImplemented
 
+
 class ImageState(Enum):
     initialized = "initialized"
     building = "building"
     ready = "ready"
 
+
 class Image(MappedAsDataclass, Base):
     __tablename__ = "image"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, init=False)
-    services: Mapped[set["Service"]] = relationship(back_populates="images", secondary=images_services)
+    services: Mapped[set["Service"]] = relationship(secondary=images_services, cascade="all, delete",)
+    data: list[FileDescription]
+    packages: Mapped[list[str]] = mapped_column(ScalarListType(separator="|"), default_factory=list)
     firehole_config: Mapped[str] = mapped_column(default="")
     pull: Mapped[bool] = mapped_column(default=False)
     name: Mapped[str] = mapped_column(unique=True, default=None)
     state: Mapped[ImageState] = mapped_column(default=ImageState.initialized)
+    _data: list[str] = mapped_column("data", ScalarListType(separator="|"), default_factory=list)
+
+    @property
+    def data(self):
+        return [FileDescription(contents=eval(data)[1], image_file_path=eval(data)[0]) for data in self._data]
+
+    @data.setter
+    def data(self, data: list[FileDescription]):
+        self._data = [str((file_decs.image_file_path, file_decs.contents)) for file_decs in data]
 
     def __key(self):
         instance_key = [self.firehole_config, self.pull]
@@ -941,6 +943,7 @@ class Image(MappedAsDataclass, Base):
             instance_key += [service.type, service.version, service.cves]
             for key, value in service.variable_override.items():
                 instance_key.append(f"{key}:{value}")
+        [instance_key.append(data_config) for data_config in self.data]
         return tuple(instance_key)
 
     def __hash__(self):
@@ -950,8 +953,3 @@ class Image(MappedAsDataclass, Base):
         if isinstance(other, Image):
             return self.__key() == other.__key()
         return NotImplemented
-
-    def __post_init__(self):
-        if self.name is None:
-            self.name = str(uuid1())
-

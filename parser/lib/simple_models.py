@@ -3,6 +3,7 @@ from typing import Any
 
 from frozendict import frozendict
 
+from shared.classes import FileDescription
 from netaddr import IPNetwork, IPAddress
 from dataclasses import dataclass, field, asdict
 
@@ -26,6 +27,8 @@ class Image:
     pull: bool = False
     firehole_config: str = ""
     services: tuple[Service, ...] = field(default_factory=tuple)
+    packages: set[str] = field(default_factory=list)
+    data: set[FileDescription] = field(default_factory=set)
 
     def __key(self):
         instance_key = [self.firehole_config, self.pull]
@@ -33,6 +36,8 @@ class Image:
             instance_key += [service.type, service.version, service.cves]
             for key, value in service.variable_override.items():
                 instance_key.append(f"{key}:{value}")
+        for data_config in self.data:
+            instance_key += [data_config.image_file_path, data_config.contents]
         return tuple(instance_key)
 
     def __hash__(self):

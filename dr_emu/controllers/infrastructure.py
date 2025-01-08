@@ -4,19 +4,18 @@ from asyncio import TaskGroup
 from typing import Sequence
 from uuid import uuid1
 
+import docker
 import randomname
 from docker import DockerClient
+from docker.errors import ImageNotFound, APIError, NotFound
+from netaddr import IPNetwork
 from sqlalchemy import select
-import docker
-from docker.errors import ImageNotFound, APIError, NullResource, NotFound
-from netaddr import IPNetwork, IPAddress
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy.orm import joinedload
 
-from shared import constants
-from dr_emu.lib import util
 from dr_emu.controllers import template as template_controller, image as image_controller
+from dr_emu.database_config import sessionmanager
+from dr_emu.lib import util
 from dr_emu.lib.logger import logger
 from dr_emu.models import (
     Infrastructure,
@@ -30,20 +29,20 @@ from dr_emu.models import (
     ServiceAttacker,
     Volume,
     Service,
-    Router, ImageState, Image
+    Router, ImageState
 )
-from dr_emu.database_config import sessionmanager
-
-from parser.cyst_parser import CYSTParser
 from dr_emu.settings import settings
-from tests.integration.test_rest_api import infrastructure
+from parser.cyst_parser import CYSTParser
+from shared import constants
 
 async_lock = asyncio.Lock()
+
 
 class InfrastructureController:
     """
     Class for handling actions regarding creating and destroying the infrastructure in docker.
     """
+
     def __init__(self, infrastructure: Infrastructure):
         self.client = docker.from_env()
         self.infrastructure = infrastructure
@@ -176,6 +175,11 @@ class InfrastructureController:
         )
         delete_volumes_tasks = await self.delete_volumes()
         await asyncio.gather(*delete_volumes_tasks)
+        logger.debug(
+            "Volumes deleted",
+            infrastructure_name=self.infrastructure.name,
+            infrastructure_id=self.infrastructure.id,
+        )
 
     async def delete_networks(self, check_id: bool) -> set[asyncio.Task[None]]:
         """
@@ -260,7 +264,8 @@ class InfrastructureController:
                     network.router_gateway = new_ip
 
     @staticmethod
-    async def update_environment_variables(containers: list[Service | Node | Router], name_pairs: dict[str, str]) -> None:
+    async def update_environment_variables(containers: list[Service | Node | Router],
+                                           name_pairs: dict[str, str]) -> None:
         for container in containers:
             if container.environment:
                 for k, v in container.environment.items():
@@ -328,26 +333,30 @@ class InfrastructureController:
 
         self.infrastructure.networks.append(management_network)
 
-    async def build_infrastructure(self, run: Run) -> Instance:
-        run_instance = Instance(
-            run=run,
-            infrastructure=self.infrastructure,
-        )
+    async def build_infrastructure(self, run: Run, db_session: AsyncSession) -> Instance:
         try:
             await self.start()
-            return run_instance
+            return Instance(
+                run=run,
+                infrastructure=self.infrastructure,
+            )
         except (ImageNotFound, APIError, RuntimeError, Exception) as error:
             logger.error(
                 f"Deleting infrastructure due to {type(error).__name__}",
                 infrastructure_name=self.infrastructure.name,
                 exception=str(error),
             )
+            # this is necessary for the specific infra where the exception was thrown, outer exception handling is for
+            # other infras
+            await self.stop()
+            db_session.expire(self.infrastructure, ["networks", "routers", "nodes"])
+            await db_session.delete(self.infrastructure)
             raise error
 
     @staticmethod
     async def prepare_controller_for_infra_creation(
-        infrastructure: Infrastructure,
-        available_networks: list[IPNetwork],
+            infrastructure: Infrastructure,
+            available_networks: list[IPNetwork],
     ):
         """
         Creates a management network for routers and changes names and ip addresses of models for new infrastructure if
@@ -414,27 +423,26 @@ class InfrastructureController:
 
     @staticmethod
     async def create_controller(
-        infrastructure: Infrastructure,
-        used_docker_networks: set[IPNetwork],
-        parser: CYSTParser,
-        docker_container_names: set[str],
-        docker_network_names: set[str],
-        db_session: AsyncSession,
-        docker_client: DockerClient,
+            infrastructure: Infrastructure,
+            used_docker_networks: set[IPNetwork],
+            parser: CYSTParser,
+            docker_container_names: set[str],
+            docker_network_names: set[str],
+            db_session: AsyncSession,
+            docker_client: DockerClient,
     ):
-        networks, routers, nodes, volumes, images = await parser.bake_models(db_session, infrastructure.name)
 
-        async with async_lock: # TODO: figure out how to make this work without async lock
+        async with async_lock:  # TODO: figure out how to make this work without async lock
+            networks, routers, nodes, volumes, images = await parser.bake_models(db_session, infrastructure.name)
             try:
                 async with TaskGroup() as tg:
                     for image in images:
                         tg.create_task(InfrastructureController.ensure_image_exists(image.id, docker_client))
-            except Exception as err: # TODO: find out what exception can happen here
+            except Exception as err:  # TODO: find out what exception can happen here
                 [await db_session.delete(image) for image in images]
+                await db_session.delete(infrastructure)
                 await db_session.commit()
                 raise err
-
-
 
         infrastructure.networks, infrastructure.routers, infrastructure.nodes = networks, routers, nodes
 
@@ -465,6 +473,7 @@ class InfrastructureController:
                     elif "metasploit" in service.image.name:
                         service.environment["METASPLOIT_LHOST"] = str(node.interfaces[0].ipaddress)
 
+        db_session.add(infrastructure)
         return controller
 
     @staticmethod
@@ -531,7 +540,6 @@ class InfrastructureController:
         db_session.add_all(infrastructures)
         await db_session.commit()
 
-
         for infra in infrastructures:
             controllers.append(
                 await InfrastructureController.create_controller(
@@ -546,7 +554,7 @@ class InfrastructureController:
             )
 
         build_infrastructure_tasks = {
-            asyncio.create_task(controller.build_infrastructure(run)) for controller in controllers
+            asyncio.create_task(controller.build_infrastructure(run, db_session)) for controller in controllers
         }
 
         instances = await asyncio.gather(*build_infrastructure_tasks, return_exceptions=True)
@@ -557,17 +565,13 @@ class InfrastructureController:
             )
             for task in instances:
                 if isinstance(task, Instance):
-                    try:
-                        await InfrastructureController.stop_infra(task.infrastructure)
-                    except NullResource:
-                        pass
+                    await InfrastructureController.stop_infra(task.infrastructure)
+                    await db_session.delete(task.infrastructure)  # commits in outer function
                 elif isinstance(task, Exception):
                     exceptions.append(task)
             raise ExceptionGroup("Failed to build infrastructures", exceptions)
 
         return instances
-
-
 
     @staticmethod
     async def stop_infra(infrastructure: Infrastructure):

@@ -307,11 +307,11 @@ class TestInfrastructureController:
     async def test_build_infrastructure_exception(self, mocker: MockerFixture, infrastructure: Mock):
         instance_mock = mocker.patch(f"{self.file_path}.Instance")
         run_mock = Mock()
+        db_session = AsyncMock()
         start_mock = mocker.patch.object(self.controller, "start", side_effect=Exception)
         stop_mock = mocker.patch.object(self.controller, "stop")
 
         with pytest.raises(Exception):
-            await self.controller.build_infrastructure(run_mock)
+            await self.controller.build_infrastructure(run_mock, db_session)
 
-        instance_mock.assert_called_once_with(run=run_mock, infrastructure=infrastructure)
         start_mock.assert_called_once()

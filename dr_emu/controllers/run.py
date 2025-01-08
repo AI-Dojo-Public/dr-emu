@@ -111,13 +111,12 @@ async def start_run(run_id: int, number_of_instances: int, db_session: AsyncSess
     try:
         run_instances = await InfrastructureController.build_infras(number_of_instances, run, db_session)
         db_session.add_all(run_instances)
-        await db_session.commit()
-    except* (ImageNotFound, RuntimeError, APIError, TypeError) as ex:
+    except* (ImageNotFound, RuntimeError, APIError, TypeError, Exception) as ex:
         if settings.debug:
             raise ex
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
-    except* Exception as err:
-        raise err
+    finally:
+        await db_session.commit()
 
 
 async def stop_run(run_id: int, db_session: AsyncSession):

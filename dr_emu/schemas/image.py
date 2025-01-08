@@ -18,4 +18,5 @@ class ImageOut(BaseModel):
     id: int
     pull: bool
     services: list[Service]
+    packages: list[str]
 

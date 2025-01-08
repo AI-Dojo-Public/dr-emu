@@ -80,7 +80,8 @@ async def list_images(session: DBSession):
                     cves=service.cves,
                 )
                 for service in image.services
-            ]
+            ],
+            packages=image.packages
         )
         image_data.append(image_dict)
 
