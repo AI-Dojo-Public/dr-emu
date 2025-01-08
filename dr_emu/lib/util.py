@@ -1,14 +1,15 @@
-from typing import Any
+import asyncio
+from uuid import uuid1
 
+import cif
 import docker.errors
 from docker import DockerClient
-import asyncio
-import cif
 from netaddr import IPNetwork
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dr_emu.lib.logger import logger
 from dr_emu.models import Image, ImageState
+from shared import constants
 
 
 # TODO: Needs testing, also, never used
@@ -139,6 +140,46 @@ async def pull_image(docker_client: DockerClient, image: str):
     raise docker.errors.ImageNotFound(f"Could not pull image {image}")
 
 
+async def build_cif_image(image: Image):
+    image_variables = {}
+    image_services = []
+    for service in image.services:
+        image_services.append(service.type)
+        image_variables.update(service.variable_override)
+
+    if forbidden_services := cif.helpers.check_for_forbidden_services(image_services):
+        logger.warning(f"Image contains forbidden services: {forbidden_services}")
+
+    # hotfix for incomplete cif services
+    image_services = [service for service in image_services if service not in forbidden_services]
+
+    logger.info(f"Building image", image=image.name, image_services=image_services)
+
+    file_paths = []
+    # list[tuple(host_path, image_path, username, groupname, mode)]
+    image_files: list[tuple[str, str, str | int | None, str | int | None, int | None]] = []
+
+    try:
+        for file_desc in image.data:
+            file_name = str(uuid1())
+            file_path = constants.cif_tmp_data_path / file_name
+            file_path.write_text(file_desc.contents)  # Write content to the file
+            image_files.append((file_path, file_desc.image_file_path, None, None, None))
+            file_paths.append(file_path)
+
+        await asyncio.to_thread(
+            cif.build,
+            services=image_services,
+            variables=image_variables,
+            actions=[], firehole_config=image.firehole_config, final_tag=image.name, files=image_files,
+            packages=image.packages, clean_up=True)
+    finally:
+        # Delete all created files
+        for file_path in file_paths:
+            if file_path.exists():
+                file_path.unlink()
+
+
 async def get_image(docker_client: DockerClient, image: Image, db_session: AsyncSession):
     """
     Pull image from repository or build it using CIF
@@ -158,26 +199,10 @@ async def get_image(docker_client: DockerClient, image: Image, db_session: Async
             image.state = ImageState.ready
             await db_session.commit()
         else:
-            image_variables = {}
-            image_services = []
-            for service in image.services:
-                image_services.append(service.type)
-                image_variables.update(service.variable_override)
-
-            if forbidden_services := cif.helpers.check_for_forbidden_services(image_services):
-                logger.warning(f"Image contains forbidden services: {forbidden_services}")
-
-            # hotfix for incomplete cif services
-            image_services = [service for service in image_services if service not in forbidden_services]
-
-            logger.info(f"Building image with services {image_services}")
-            await asyncio.to_thread(
-                cif.build, repository="cif",
-                      services=image_services,
-                      variables=image_variables,
-                      actions=[], firehole_config=image.firehole_config, image_tag=image.name)
+            await build_cif_image(image)
             image.state = ImageState.ready
             await db_session.commit()
+
 
 async def check_running_tasks(name: str):
     loop = asyncio.get_running_loop()
