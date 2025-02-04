@@ -464,7 +464,6 @@ class InfrastructureController:
             infrastructure_name=infrastructure.name,
         )
 
-        # TODO: Kinda hotfix for unique worker names
         for node in nodes:
             if isinstance(node, Attacker):
                 for service in node.service_containers:
@@ -477,11 +476,10 @@ class InfrastructureController:
         return controller
 
     @staticmethod
-    async def build_infras(number_of_infrastructures: int, run: Run, db_session: AsyncSession) -> list[Instance]:
+    async def build_infra(run: Run, db_session: AsyncSession) -> Instance:
         """
         Builds docker infrastructure
         :param run: Run object
-        :param number_of_infrastructures: Number of infrastructures to build
         :param db_session: Async database session
         :return:
         """
@@ -498,8 +496,6 @@ class InfrastructureController:
             )
 
         logger.info("Building infrastructures")
-        controllers: list[InfrastructureController] = []
-
         # check if management (cryton) network exists
         if not settings.ignore_management_network:
             try:
@@ -517,33 +513,29 @@ class InfrastructureController:
         await parser.parse()
 
         infrastructure_names: set[str] = set()
-        infrastructures: list[Infrastructure] = []
 
-        existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
-        used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
-        used_infrastructure_names = {infra.name for infra in existing_infrastructures}
-        available_infrastructure_supernets = await util.get_available_networks_for_infras(
-            used_docker_networks,
-            number_of_infrastructures,
-            used_infrastructure_supernets,
-        )
+        async with async_lock:
+            existing_infrastructures = (await db_session.scalars(select(Infrastructure))).all()
+            used_infrastructure_supernets = {infra.supernet for infra in existing_infrastructures}
+            used_infrastructure_names = {infra.name for infra in existing_infrastructures}
+            available_infrastructure_supernets = await util.get_available_networks_for_infras(
+                used_docker_networks,
+                used_infrastructure_supernets,
+            )
 
-        for i in range(number_of_infrastructures):
             while (infra_name := randomname.generate("adj/colors", "n/astronomy")) in used_infrastructure_names:
                 continue
             infrastructure_names.update(infra_name)
-            infrastructures.append(Infrastructure(name=infra_name,
-                                                  supernet=available_infrastructure_supernets[i],
-                                                  nodes=[],
-                                                  networks=[],
-                                                  routers=[]))
-        db_session.add_all(infrastructures)
-        await db_session.commit()
+            infrastructure = Infrastructure(name=infra_name,
+                                              supernet=available_infrastructure_supernets,
+                                              nodes=[],
+                                              networks=[],
+                                              routers=[])
+            db_session.add(infrastructure)
+            await db_session.commit()
 
-        for infra in infrastructures:
-            controllers.append(
-                await InfrastructureController.create_controller(
-                    infra,
+        controller = await InfrastructureController.create_controller(
+                    infrastructure,
                     used_docker_networks,
                     parser,
                     used_docker_container_names,
@@ -551,27 +543,19 @@ class InfrastructureController:
                     db_session,
                     docker_client
                 )
-            )
 
-        build_infrastructure_tasks = {
-            asyncio.create_task(controller.build_infrastructure(run, db_session)) for controller in controllers
-        }
-
-        instances = await asyncio.gather(*build_infrastructure_tasks, return_exceptions=True)
-        exceptions: list[Exception] = []
-        if any(isinstance(task, Exception) for task in instances):
+        try:
+            instance = await controller.build_infrastructure(run, db_session)
+        except Exception as err:
             logger.error(
-                "Deleting all instances due to exceptions in attempts to build all infrastructures",
+                "Deleting instance due to exception in build_infrastructure",
             )
-            for task in instances:
-                if isinstance(task, Instance):
-                    await InfrastructureController.stop_infra(task.infrastructure)
-                    await db_session.delete(task.infrastructure)  # commits in outer function
-                elif isinstance(task, Exception):
-                    exceptions.append(task)
-            raise ExceptionGroup("Failed to build infrastructures", exceptions)
+            await InfrastructureController.stop_infra(infrastructure)
+            await db_session.delete(infrastructure)  # commits in outer function
 
-        return instances
+            raise err
+
+        return instance
 
     @staticmethod
     async def stop_infra(infrastructure: Infrastructure):

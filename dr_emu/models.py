@@ -399,7 +399,6 @@ class Router(Appliance):
         "polymorphic_identity": "router",
     }
 
-    # TODO: refactor taking gateway from connections in cyst_infrastructure
     async def configure(self) -> None:
         """
         Configure ip routes, iptables on a router based on its type.
@@ -645,7 +644,6 @@ class Attacker(Node):
         pass
         # container = await self.get()
         #
-        # # TODO: what routes to add?
         # setup_instructions = [
         #     f"ip route add  via {str(self.interfaces[0].network.router_gateway)}",
         # ]
@@ -654,7 +652,6 @@ class Attacker(Node):
         #     await asyncio.to_thread(container.exec_run, cmd=instruction)
 
 
-# TODO: Should this be Node or Appliance?
 class Dns(Node):
     __mapper_args__ = {
         "polymorphic_identity": "dns",
@@ -678,7 +675,7 @@ class ServiceContainer(DockerContainerMixin, Base):
 
     parent_node_id: Mapped[int] = mapped_column(ForeignKey("node.id"))
     parent_node: Mapped["Node"] = relationship(back_populates="service_containers")
-    dependencies: Mapped[list["DependsOn"]] = relationship(  # TODO: is this the same as depends_on in Node?
+    dependencies: Mapped[list["DependsOn"]] = relationship(
         back_populates="dependant",
         foreign_keys="DependsOn.dependant_service_id",
         cascade="all, delete-orphan",
@@ -756,7 +753,7 @@ class ServiceContainer(DockerContainerMixin, Base):
                         self.client.api.inspect_container,
                         dependency_model.dependency.name,
                     )
-                except ((NotFound, NullResource), APIError):
+                except (NotFound, NullResource, APIError):
                     logger.debug(f"Waiting for dependency container: {dependency_model.dependency.name}")
                     await asyncio.sleep(1)
                     count += 1

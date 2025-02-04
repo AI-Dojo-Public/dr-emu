@@ -1,5 +1,5 @@
-# AI-dojo Docker testbed
-This project serves as a demonstration of semi-realistic network topology generation using a docker for AI-DOJO.
+# Dr-emu
+Application for building semi-realistic network topology via Docker based on python description for [CYST](https://cyst-public.gitlab-pages.ics.muni.cz/cyst-core/index.html). Primary use of this application is to create an emulation environments for AI Agents where they can test their abilities in a more realistic scenario. Dr-emu was developed within the [AI-DOJO](https://gitlab.ics.muni.cz/ai-dojo) project.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ docker compose up -d
 
 ### Private Repository
 If the docker images that should be downloaded for the infrastructure are in **private repository** please edit 
-**$DOCKER_TOKEN** and **$REGISTRY_URL** Environmental variables.
+**\$DOCKER_TOKEN** and **\$REGISTRY_URL** Environmental variables.
 
 In **/dr-emu/.env** change the value of: 
 -   **$DOCKER_TOKEN** - access token for your private repository 
@@ -47,17 +47,12 @@ dr-emu runs stop <run-id>
 ## REST API
 For REST API documentation, see `http://127.0.0.1:8000/docs`.
 
-## CLI
-Application also has a command line interface. CLI is accessible from application docker container. To access CLI, make sure that the application is deployed via
-`docker compose` and run the following commands. 
-
-```
-docker exec -it dr-emu /bin/sh
-```
-```
-dr-emu --help
-```
 ## Start Run prerequisites
+### Use without Cryton
+
+Set `IGNORE_MANAGEMENT_NETWORK=true` variable in `dr-emu/.env` file.
+
+### Use with Cryton
 **Be sure to have Management network containing Cryton deployed before starting Run!**
 
 Edit `MANAGEMENT_NETWORK_NAME` environment variable in `dr-emu/.env` file with the name of the 
