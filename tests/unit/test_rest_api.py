@@ -93,12 +93,10 @@ class TestRun:
 
     async def test_start_run(self, test_app: TestClient, run: Mock, mocker: MockerFixture):
         mocker.patch(f"{self.run_controller}.start_run")
-        response = test_app.post(
-            endpoints.Run.start.format(run.id), json={"instances": 1}
-        )
+        response = test_app.post(endpoints.Run.start.format(run.id), json={"instances": 1})
 
         assert response.status_code == 200
-        assert response.json() == {'message': '1 Run instances started'}
+        assert response.json() == {"message": "Run instance started"}
 
     async def test_start_nonexistent_run(self, test_app: TestClient, run: Mock, mocker: MockerFixture):
         mocker.patch(f"{self.run_controller}.start_run", side_effect=NoResultFound)
@@ -143,8 +141,9 @@ class TestTemplate:
     def template_schema(self, template: Mock) -> dict[str, Any]:
         return {"description": template.description, "name": template.name, "id": template.id}
 
-    async def test_list_templates(self, template: Mock, test_app: TestClient, mocker: MockerFixture,
-                                  template_schema: dict[str, Any]):
+    async def test_list_templates(
+        self, template: Mock, test_app: TestClient, mocker: MockerFixture, template_schema: dict[str, Any]
+    ):
         mock_list_templates = AsyncMock(return_value=[template])
         mocker.patch(f"{self.template_controller}.list_templates", side_effect=mock_list_templates)
 
@@ -152,8 +151,9 @@ class TestTemplate:
         assert response.status_code == 200
         assert response.json() == [template_schema]
 
-    async def test_create_template(self, test_app: TestClient, template: Mock, mocker: MockerFixture,
-                                   template_schema: dict[str, Any]):
+    async def test_create_template(
+        self, test_app: TestClient, template: Mock, mocker: MockerFixture, template_schema: dict[str, Any]
+    ):
         mock_create_template = mocker.patch(
             f"{self.template_controller}.create_template", side_effect=AsyncMock(return_value=template)
         )

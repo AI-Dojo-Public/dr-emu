@@ -75,17 +75,16 @@ private ip range of the **10.0.0.0/8** is available.
     description=run_start_description,
     )
 async def start_run(session: DBSession, run_id: int):
-    instances = 1 # removed from user input until fixed or reimplemented
     try:
         await run_controller.start_run(
-            run_id, instances, session
+            run_id, session
         )
     except NoResultFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=nonexistent_object_msg(constants.RUN, run_id)
         )
 
-    return {"message": f"{instances} Run instances started"}
+    return {"message": f"Run instance started"}
 
 
 @router.post("/stop/{run_id}/")

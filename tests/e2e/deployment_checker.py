@@ -17,8 +17,7 @@ async def get_infrastructure(run_id):
     return httpx.get(f"http://127.0.0.1:8000/infrastructures/get/{run['infrastructure_ids'][0]}/").json()
 
 
-async def get_infra_info(run_id: int, parser: CYSTParser):
-    infrastructure_info = await get_infrastructure(run_id)
+async def get_infra_info(infrastructure_info: dict, parser: CYSTParser):
     appliance_ips = {}
     appliance_names = {}
 
@@ -28,20 +27,18 @@ async def get_infra_info(run_id: int, parser: CYSTParser):
                 appliance_ips[original_ip] = appliance["ip"]
                 for node in parser.nodes:
                     if node.name in appliance["name"]:
-                        appliance_names[node.name] = appliance["name"]
+                        appliance_names[node.name] = appliance['name']
 
     return appliance_ips, appliance_names
 
 
-async def get_docker_networks(run_id):
+async def get_docker_networks(infrastructure):
     """
     Get docker networks belonging to the dr-emu infrastructure
-    :param run_id:
     :return: list of docker Networks objects
     """
     docker_client = docker.from_env()
     docker_networks = {}
-    infrastructure = await get_infrastructure(run_id)
 
     for network in infrastructure["networks"]:
         if (docker_network := docker_client.networks.get(network["name"]).attrs) is not None:
@@ -57,17 +54,20 @@ async def get_docker_networks(run_id):
     return docker_networks
 
 
-async def check_running_status(parser: CYSTParser):
+async def check_running_status(appliance_names: dict):
     result = True
     logger.info("Checking container running statuses")
     docker_client = docker.from_env()
-    for appliance in [*parser.nodes, *parser.routers]:
-        if docker_client.containers.get(appliance.name).status != "running":
-            logger.error("Infrastructure Appliance is not running", name=appliance.name)
+    for original_name, docker_name in appliance_names.items():
+        if docker_client.containers.get(docker_name).status != "running":
+            logger.error("Infrastructure Appliance is not running", name=docker_name)
             result = False
 
     return result
 
+async def install_ping(docker_container: docker.models.containers.Container):
+    docker_container.exec_run(f"apt-get update -y")
+    docker_container.exec_run(f"apt-get install -y iputils-ping")
 
 async def check_network_connections_and_firewall(appliance_ips: dict, appliance_names: dict):
     """
@@ -80,6 +80,13 @@ async def check_network_connections_and_firewall(appliance_ips: dict, appliance_
     docker_client = docker.from_env()
 
     wifi_client_container = docker_client.containers.get(appliance_names[wifi_client.id])
+    wordpress_container = docker_client.containers.get(appliance_names[wordpress_srv.id])
+    developer_container = docker_client.containers.get(appliance_names[developer.id])
+
+    async with asyncio.TaskGroup() as tg:
+        for container in [wifi_client_container, wordpress_container, developer_container]:
+            tg.create_task(install_ping(container))
+
     wifi_client_pings = [
         wifi_client_container.exec_run(f"ping -c 2 {appliance_ips[str(wordpress_srv.interfaces[0].ip)]}"),
         wifi_client_container.exec_run(f"ping -c 2 {appliance_ips[str(developer.interfaces[0].ip)]}"),
@@ -89,7 +96,6 @@ async def check_network_connections_and_firewall(appliance_ips: dict, appliance_
             logger.error(f"Wrong firewall rules for network with {wifi_client_container.name}")
             result = False
 
-    wordpress_container = docker_client.containers.get(appliance_names[wordpress_srv.id])
     wordpress_pings = [
         wordpress_container.exec_run(f"ping -c 2 {appliance_ips[str(wifi_client.interfaces[0].ip)]}"),
         wordpress_container.exec_run(f"ping -c 2 {appliance_ips[str(developer.interfaces[0].ip)]}"),
@@ -99,7 +105,6 @@ async def check_network_connections_and_firewall(appliance_ips: dict, appliance_
             logger.error(f"Wrong firewall rules for network with {wordpress_container.name}")
             result = False
 
-    developer_container = docker_client.containers.get(appliance_names[developer.id])
     developer_pings = [
         developer_container.exec_run(f"ping -c 2 {appliance_ips[str(wordpress_srv.interfaces[0].ip)]}"),
         developer_container.exec_run(f"ping -c 2 {appliance_ips[str(wifi_client.interfaces[0].ip)]}"),
@@ -128,9 +133,10 @@ async def check_deployment(run_id):
     parser = CYSTParser(config)
     await parser.parse()
 
-    docker_infrastructure = await get_docker_networks(run_id)
-    appliance_ips, appliance_names = await get_infra_info(run_id, parser)
-    running_status_check = await check_running_status(parser)
+    infrastructure_info = await get_infrastructure(run_id)
+    docker_infrastructure = await get_docker_networks(infrastructure_info)
+    appliance_ips, appliance_names = await get_infra_info(infrastructure_info, parser)
+    running_status_check = await check_running_status(appliance_names)
     fw_connections_check = await check_network_connections_and_firewall(appliance_ips, appliance_names)
 
     if docker_infrastructure and running_status_check and fw_connections_check:
@@ -146,7 +152,7 @@ async def main():
     )
     parser.add_argument("token")
 
-    run_id = deployment_script.main(all_config_items)
+    run_id = await deployment_script.main(all_config_items)
     if await check_deployment(run_id):
         print("\n[bold green]All tests passed.[/bold green]\n")
     else:

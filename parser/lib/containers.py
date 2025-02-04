@@ -42,7 +42,6 @@ EXPLOITS = {
     "vsftpd": (firehole_config_path / "vsftpd.yaml").as_posix()
 }
 
-# TODO: unique variables accross infras under a single run
 IMAGE_DEFAULT = Image(name="cif_base")
 DNS_VOLUMES = [Volume("core-dns", "/etc/coredns")]
 

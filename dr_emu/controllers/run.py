@@ -97,11 +97,10 @@ async def delete_run(run_id: int, db_session: AsyncSession) -> Run:
     return run
 
 
-async def start_run(run_id: int, number_of_instances: int, db_session: AsyncSession):
+async def start_run(run_id: int, db_session: AsyncSession):
     """
     Start number of specified Run instances (infrastructure clones)
     :param run_id: ID of Run
-    :param number_of_instances: number of instances to start
     :param db_session: Async database session
     :return:
     :raises: sqlalchemy.exc.NoResultFound
@@ -109,9 +108,9 @@ async def start_run(run_id: int, number_of_instances: int, db_session: AsyncSess
 
     run = (await db_session.execute(select(Run).where(Run.id == run_id))).scalar_one()
     try:
-        run_instances = await InfrastructureController.build_infras(number_of_instances, run, db_session)
-        db_session.add_all(run_instances)
-    except* (ImageNotFound, RuntimeError, APIError, TypeError, Exception) as ex:
+        run_instance = await InfrastructureController.build_infra(run, db_session)
+        db_session.add(run_instance)
+    except (ImageNotFound, RuntimeError, APIError, TypeError, Exception) as ex:
         if settings.debug:
             raise ex
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(ex))
@@ -140,7 +139,8 @@ async def stop_run(run_id: int, db_session: AsyncSession):
                         joinedload(Infrastructure.routers),
                         joinedload(Infrastructure.networks),
                         joinedload(Infrastructure.nodes).options(
-                            joinedload(Node.service_containers).joinedload(ServiceContainer.volumes), joinedload(Node.volumes)
+                            joinedload(Node.service_containers).joinedload(ServiceContainer.volumes),
+                            joinedload(Node.volumes),
                         ),
                     )
                 )

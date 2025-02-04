@@ -10,7 +10,8 @@ from cyst.api.configuration import (
     RouterConfig,
     NodeConfig,
     ActiveServiceConfig,
-    PassiveServiceConfig, DataConfig,
+    PassiveServiceConfig,
+    DataConfig,
 )
 from cyst.api.configuration.configuration import ConfigItem
 from cyst.api.environment.environment import Environment
@@ -29,11 +30,20 @@ from dr_emu.models import (
     Node as DockerNode,
     Image as ImageModel,
     Service as ServiceModel,
-    Volume
+    Volume,
 )
 from parser.lib import containers
-from parser.lib.simple_models import (Network, Interface, FirewallRule, Router, Node,
-                                      NodeType, Image, Service, FileDescription)
+from parser.lib.simple_models import (
+    Network,
+    Interface,
+    FirewallRule,
+    Router,
+    Node,
+    NodeType,
+    Image,
+    Service,
+    FileDescription,
+)
 from shared import constants
 
 
@@ -44,7 +54,6 @@ class CYSTParser:
         self.routers: list[Router] = list()
         self.nodes: list[Node] = list()
         self.docker_images: set[Image] = {containers.IMAGE_DEFAULT}
-        self.async_lock = asyncio.Lock()
 
     @staticmethod
     def _load_infrastructure_description(description: str) -> list[ConfigItem]:
@@ -60,8 +69,9 @@ class CYSTParser:
     def networks_ips(self) -> set[IPNetwork]:
         return {network.subnet for network in self.networks}
 
-    async def create_image(self, services: list[Service], data_configurations: list[DataConfig],
-                           available_cif_services: list[str]) -> Image:
+    async def create_image(
+        self, services: list[Service], data_configurations: list[DataConfig], available_cif_services: list[str]
+    ) -> Image:
         firehole_config = ""  # TODO
         packages: set[str] = set()
         for service in services:
@@ -74,9 +84,13 @@ class CYSTParser:
         image_data = set()
         for data_config in data_configurations:
             image_data.add(FileDescription(contents=data_config.description, image_file_path=data_config.id))
-        image = Image(name=f"dr_emu_{(str(uuid1())).replace('-', '')}", services=tuple(services),
-                      firehole_config=firehole_config, packages=packages,
-                      data=image_data)
+        image = Image(
+            name=f"dr_emu_{(str(uuid1())).replace('-', '')}",
+            services=tuple(services),
+            firehole_config=firehole_config,
+            packages=packages,
+            data=image_data,
+        )
         if image in self.docker_images:
             return image
 
@@ -149,22 +163,27 @@ class CYSTParser:
                         vulnerable_services.add(vuln_service.name)
             data_configurations = []
             services = await self._parse_services(
-                cyst_node.active_services + cyst_node.passive_services, vulnerable_services, data_configurations)
+                cyst_node.active_services + cyst_node.passive_services, vulnerable_services, data_configurations
+            )
 
-            image = await self.create_image(services=services, data_configurations=data_configurations,
-                                            available_cif_services=available_cif_services)
+            image = await self.create_image(
+                services=services,
+                data_configurations=data_configurations,
+                available_cif_services=available_cif_services,
+            )
             node_type = NodeType.DEFAULT
             if len(cyst_node.active_services) > 0:
                 node_type = NodeType.ATTACKER
 
             logger.debug("Adding node", id=cyst_node.id, services=services, interfaces=interfaces)
-            self.nodes.append(
-                Node(image=image, name=cyst_node.id, interfaces=interfaces,
-                     type=node_type))
+            self.nodes.append(Node(image=image, name=cyst_node.id, interfaces=interfaces, type=node_type))
 
-    async def _parse_services(self, node_services: set[PassiveServiceConfig | ActiveServiceConfig],
-                              vulnerable_services: set[str],  # Not implemented yet
-                              data_configs: list[DataConfig]) -> list[Service]:
+    async def _parse_services(
+        self,
+        node_services: set[PassiveServiceConfig | ActiveServiceConfig],
+        vulnerable_services: set[str],  # Not implemented yet
+        data_configs: list[DataConfig],
+    ) -> list[Service]:
         """
         Create service models from nodes in cyst infrastructure prescription.
         :param node_services: node objects from cyst infrastructure
@@ -175,8 +194,9 @@ class CYSTParser:
         for node_service in node_services:
             if node_service.type == "bash":
                 continue
-            for data_config in node_service.private_data:
-                data_configs.append(data_config)
+            if isinstance(node_service, PassiveServiceConfig):
+                for data_config in node_service.private_data:
+                    data_configs.append(data_config)
             cves = ""
             if node_service.type in containers.EXPLOITS:  # TODO: temporary solution instead of `vulnerable_services`
                 cves = "cve_placeholder;"  # TODO: wait for cve implementation
@@ -187,8 +207,7 @@ class CYSTParser:
                     case ActiveServiceConfig():
                         services.append(Service(type=node_service.type, version="", cves=cves))
                     case PassiveServiceConfig():
-                        services.append(
-                            Service(type=node_service.type, version=node_service.version, cves=cves))
+                        services.append(Service(type=node_service.type, version=node_service.version, cves=cves))
 
         return services
 
@@ -219,8 +238,14 @@ class CYSTParser:
 
             logger.debug("Adding router", id=cyst_router.id, type=router_type)
             self.routers.append(
-                Router(image=containers.IMAGE_DEFAULT, name=cyst_router.id, type=router_type, interfaces=interfaces,
-                       firewall_rules=firewall_rules))
+                Router(
+                    image=containers.IMAGE_DEFAULT,
+                    name=cyst_router.id,
+                    type=router_type,
+                    interfaces=interfaces,
+                    firewall_rules=firewall_rules,
+                )
+            )
 
     async def _parse_exploits(self, exploits: list[ExploitConfig], service: Service) -> None:
         for exploit in exploits:
@@ -240,9 +265,9 @@ class CYSTParser:
     #                     if not service_requirements:
     #                         break
 
-    async def bake_models(self, db_session: AsyncSession, infrastructure_name: str) -> tuple[
-        list[DockerNetwork], list[DockerRouter],
-        list[DockerNode], list[Volume], list[ImageModel]]:
+    async def bake_models(
+        self, db_session: AsyncSession, infrastructure_name: str
+    ) -> tuple[list[DockerNetwork], list[DockerRouter], list[DockerNode], list[Volume], list[ImageModel]]:
         """
         Create linked database models for the parsed infrastructure.
         :return: Network, Router, and Node models
@@ -288,8 +313,13 @@ class CYSTParser:
         #         docker_service.dependencies.append(
         #             DockerDependsOn(dependency=docker_dependency, state=constants.SERVICE_STARTED)
         #         )
-        return list(networks.values()), list(routers.values()), list(nodes.values()), list(volumes.values()), [
-            *db_images, *image_models]
+        return (
+            list(networks.values()),
+            list(routers.values()),
+            list(nodes.values()),
+            list(volumes.values()),
+            [*db_images, *image_models],
+        )
 
     async def bake_router_models(self, routers, networks, db_images, image_models) -> None:
         # Build DB of Docker containers (routers)
@@ -323,16 +353,19 @@ class CYSTParser:
             )
 
     @staticmethod
-    async def bake_image_model(simple_image: Image, db_images: Sequence[ImageModel],
-                               image_models: list[ImageModel]) -> ImageModel:
+    async def bake_image_model(
+        simple_image: Image, db_images: Sequence[ImageModel], image_models: list[ImageModel]
+    ) -> ImageModel:
         service_models = set()
         for service in simple_image.services:
-            service_models.add(ServiceModel(
-                type=service.type,
-                variable_override=service.variable_override,
-                version=service.version,
-                cves=service.cves,
-            ))
+            service_models.add(
+                ServiceModel(
+                    type=service.type,
+                    variable_override=service.variable_override,
+                    version=service.version,
+                    cves=service.cves,
+                )
+            )
         image = ImageModel(
             services=service_models,
             firehole_config=simple_image.firehole_config,
@@ -376,7 +409,7 @@ class CYSTParser:
                     environment=copy.deepcopy(service_container.environment),
                     command=service_container.command,
                     healthcheck=service_container.healthcheck,
-                    kwargs=copy.deepcopy(service_container.kwargs)
+                    kwargs=copy.deepcopy(service_container.kwargs),
                 )
                 services.append(service_container_model)
                 await self.bake_volumes(service_container_model, service_container.volumes, volumes)
