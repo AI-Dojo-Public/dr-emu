@@ -636,12 +636,12 @@ class Attacker(Node):
         start_service_tasks = await self.start_services()
         await asyncio.gather(*start_service_tasks)
 
-    async def configure(self):
-        """
-        Configure ip tables on a Node.
-        :return:
-        """
-        pass
+    # async def configure(self):
+    #     """
+    #     Configure ip tables on a Node.
+    #     :return:
+    #     """
+    #     pass
         # container = await self.get()
         #
         # setup_instructions = [

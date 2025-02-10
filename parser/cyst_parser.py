@@ -1,4 +1,3 @@
-import asyncio
 import copy
 from typing import Sequence
 from uuid import uuid1
@@ -74,8 +73,10 @@ class CYSTParser:
     ) -> Image:
         firehole_config = ""  # TODO
         packages: set[str] = set()
+        actual_services: list[Service] = list()
         for service in services:
             if service.type in available_cif_services:
+                actual_services.append(service)
                 if service.type in containers.EXPLOITS:
                     firehole_config = containers.EXPLOITS[service.type]
             else:
@@ -159,8 +160,7 @@ class CYSTParser:
             vulnerable_services = set()
             for exploit in exploits:
                 for vuln_service in exploit.services:
-                    if vuln_service.name != "bash":
-                        vulnerable_services.add(vuln_service.name)
+                    vulnerable_services.add(vuln_service.service)
             data_configurations = []
             services = await self._parse_services(
                 cyst_node.active_services + cyst_node.passive_services, vulnerable_services, data_configurations
@@ -192,22 +192,22 @@ class CYSTParser:
         services: list[Service] = []
 
         for node_service in node_services:
-            if node_service.type == "bash":
-                continue
-            if isinstance(node_service, PassiveServiceConfig):
-                for data_config in node_service.private_data:
-                    data_configs.append(data_config)
-            cves = ""
-            if node_service.type in containers.EXPLOITS:  # TODO: temporary solution instead of `vulnerable_services`
-                cves = "cve_placeholder;"  # TODO: wait for cve implementation
-            if node_service.type in containers.SERVICES:
-                services.append(containers.SERVICES[node_service.type])
-            else:
-                match node_service:
-                    case ActiveServiceConfig():
-                        services.append(Service(type=node_service.type, version="", cves=cves))
-                    case PassiveServiceConfig():
-                        services.append(Service(type=node_service.type, version=node_service.version, cves=cves))
+            match node_service:
+                case ActiveServiceConfig():
+                    if node_service.type not in containers.SERVICES:
+                        raise NotImplementedError(f"ActiveService {node_service.type} is not supported.")
+                    services.append(containers.SERVICES[node_service.type])
+                case PassiveServiceConfig():
+                    for data_config in node_service.private_data:
+                        data_configs.append(data_config)
+                    # TODO: temporary solution instead of `vulnerable_services`
+                    # TODO: wait for cve implementation
+                    cves = "cve_placeholder;" if node_service.name in containers.EXPLOITS else ""
+                    if node_service.name in containers.SERVICES:
+                        service = containers.SERVICES[node_service.name]
+                    else:
+                        service = Service(type=node_service.name, version=node_service.version, cves=cves)
+                    services.append(service)
 
         return services
 
@@ -372,6 +372,7 @@ class CYSTParser:
             pull=simple_image.pull,
             name=simple_image.name,
             data=[data_description for data_description in simple_image.data],
+            packages=list(simple_image.packages),
         )
         created_images = [*db_images, *image_models]
         if image in created_images:

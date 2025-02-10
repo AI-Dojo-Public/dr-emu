@@ -68,7 +68,7 @@ COREDNS_CONTAINER = ServiceContainer(
     kwargs={"restart_policy": {"Name": "on-failure"}},
 )
 ATTACKER_CONTAINER = ServiceContainer(
-    Image(name="registry.gitlab.ics.muni.cz:443/cryton/cryton/worker:2", services=(ATTACKER,), pull=True),
+    Image(name="registry.gitlab.ics.muni.cz:443/cryton/cryton/worker:3", services=(ATTACKER,), pull=True),
     tag=ATTACKER,
     environment={
         "CRYTON_WORKER_NAME": "attacker",
