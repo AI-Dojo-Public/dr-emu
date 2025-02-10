@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dr-emu"
-version = "0.1.1"
+version = "0.2.0"
 description = ""
 authors = ["Milan Bohacek <bohacek@ics.muni.cz>", "Jiri Raja <Raja@ics.muni.cz>"]
 readme = "README.md"
@@ -24,7 +24,7 @@ cyst-core = { version = "*", source = "dojo" }
 cif = { version = "*", source = "cif" }
 black = {extras = ["d"], version = "^23.3.0"}
 uvicorn = "^0.34.0"
-asyncpg = "^0.28.0"
+asyncpg = "^0.30.0"
 sqlalchemy = {extras = ["asyncio"], version = "^2.0.16"}
 sqlalchemy-utils = "^0.41.1"
 pyyaml = "^6.0"

@@ -135,8 +135,8 @@ class TestCYSTParser:
         ]
 
         exploits = [
-            Mock(services=[MagicMock(name="vuln_service"), MagicMock(name="bash")]),
-            Mock(services=[MagicMock(name="service2")])
+            Mock(services=[MagicMock(service="vuln_service"), MagicMock(service="bash")]),
+            Mock(services=[MagicMock(service="service2")])
         ]
 
         for exploit in exploits:
@@ -158,7 +158,7 @@ class TestCYSTParser:
 
         # Check if services and images were processed for the new node (node2)
         self.parser._parse_services.assert_awaited_once_with(
-            cyst_nodes[1].active_services + cyst_nodes[1].passive_services, {"vuln_service", "service2"}, []
+            cyst_nodes[1].active_services + cyst_nodes[1].passive_services, {"vuln_service", "service2", "bash"}, []
         )
         self.parser.create_image.assert_awaited_once_with(services=services_mock, data_configurations=[],
                                                           available_cif_services=["service1"])
@@ -173,10 +173,12 @@ class TestCYSTParser:
         exploits = {"test_type", "vuln_service2"}
         data_type_config_mock = "test_type"
         data_configs = []
-        cyst_services = [
-            Mock(id="service", type="test_type", version="test", spec=PassiveServiceConfig, private_data=[data_type_config_mock]),
-            Mock(id="ssh", type="ssh", spec=PassiveServiceConfig, private_data=[]),
-        ]
+        cs1 = Mock(id="service", version="test", spec=PassiveServiceConfig,
+             private_data=[data_type_config_mock])
+        cs1.name = "test_type"
+        cs2 = Mock(id="ssh", spec=PassiveServiceConfig, private_data=[])
+        cs2.name = "ssh"
+        cyst_services = [cs1, cs2]
         predefined_services = {
             "ssh": Service(type="ssh", variable_override=frozendict(SSH_PORT=22, SSH_HOST="0.0.0.0"), cves="")
         }
