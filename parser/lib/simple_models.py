@@ -25,13 +25,12 @@ class Service:
 class Image:
     name: str
     pull: bool = False
-    firehole_config: str = ""
     services: tuple[Service, ...] = field(default_factory=tuple)
     packages: set[str] = field(default_factory=list)
     data: set[FileDescription] = field(default_factory=set)
 
     def __key(self):
-        instance_key = [self.firehole_config, self.pull]
+        instance_key = [self.pull]
         for service in self.services:
             instance_key += [service.type, service.version, service.cves]
             for key, value in service.variable_override.items():

@@ -920,7 +920,6 @@ class Image(MappedAsDataclass, Base):
     services: Mapped[set["Service"]] = relationship(secondary=images_services, cascade="all, delete",)
     data: list[FileDescription]
     packages: Mapped[list[str]] = mapped_column(ScalarListType(separator="|"), default_factory=list)
-    firehole_config: Mapped[str] = mapped_column(default="")
     pull: Mapped[bool] = mapped_column(default=False)
     name: Mapped[str] = mapped_column(unique=True, default=None)
     state: Mapped[ImageState] = mapped_column(default=ImageState.initialized)
@@ -935,7 +934,7 @@ class Image(MappedAsDataclass, Base):
         self._data = [str((file_decs.image_file_path, file_decs.contents)) for file_decs in data]
 
     def __key(self):
-        instance_key = [self.firehole_config, self.pull]
+        instance_key = [self.pull]
         for service in self.services:
             instance_key += [service.type, service.version, service.cves]
             for key, value in service.variable_override.items():

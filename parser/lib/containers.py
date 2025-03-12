@@ -1,6 +1,5 @@
 from frozendict import frozendict
 from parser.lib.simple_models import Node, ServiceContainer, Volume, NodeType, Service, Image
-from shared.constants import firehole_config_path
 
 
 def sec_to_nano(seconds: int) -> int:
@@ -12,10 +11,10 @@ def sec_to_nano(seconds: int) -> int:
     return seconds * 10 ** 9
 
 
-SSH = Service(type="ssh", variable_override=frozendict(SSH_PORT=22, SSH_HOST="0.0.0.0"), cves="")
-FTP = Service(type="vsftpd", version="2.3.4", variable_override=frozendict(FTP_PORT=21, FTP_HOST="0.0.0.0"), cves="")
-MYSQL = Service(type="mysql", version="8.0.31", variable_override=frozendict(MYSQL_PORT=3306, MYSQL_HOST="0.0.0.0"),
-                cves="")
+SSH = Service(type="ssh", variable_override=frozendict(SSH_PORT=22, SSH_HOST="0.0.0.0"))
+FTP = Service(type="vsftpd", version="2.3.4", variable_override=frozendict(VSFTPD_PORT=21, VSFTPD_HOST="0.0.0.0"))
+MYSQL = Service(type="mysql", version="8.0.31", variable_override=frozendict(MYSQL_PORT=3306, MYSQL_HOST="0.0.0.0"))
+SAMBA = Service(type="samba", version="3.5.2", variable_override=frozendict(SAMBA_HOST="0.0.0.0"))
 WORDPRESS = Service(type="wordpress",
                     version="6.1.1",
                     variable_override=frozendict(
@@ -25,7 +24,7 @@ WORDPRESS = Service(type="wordpress",
                         WORDPRESS_ADMIN_PASSWORD="wordpress",
                         WORDPRESS_DB_USER="wordpress",
                         WORDPRESS_DB_PASSWORD="wordpress",
-                        WORDPRESS_DB_HOST="127.0.0.1",
+                        WORDPRESS_DB_HOST="node_wordpress_database",
                         WORDPRESS_DEBUG="false",
                         WORDPRESS_CERTIFICATE="/",
                         WORDPRESS_PRIVATE_KEY="/",
@@ -38,15 +37,11 @@ EMPIRE = Service(type="empire", version="4.10.0")
 FIREHOLE = Service(type="firehole")
 ATTACKER = Service(type="scripted_actor")
 
-EXPLOITS = {
-    "vsftpd": (firehole_config_path / "vsftpd.yaml").as_posix()
-}
-
 IMAGE_DEFAULT = Image(name="cif_base")
 DNS_VOLUMES = [Volume("core-dns", "/etc/coredns")]
 
 METASPLOIT_CONTAINER = ServiceContainer(
-    Image(name="sadparad1se/metasploit-framework:rpc", services=(METASPLOIT,), firehole_config="", pull=True),
+    Image(name="sadparad1se/metasploit-framework:rpc", services=(METASPLOIT,), pull=True),
     tag=METASPLOIT,
     environment={
         "METASPLOIT_RPC_USERNAME": "cryton",
@@ -55,13 +50,13 @@ METASPLOIT_CONTAINER = ServiceContainer(
     can_be_combined=True,
 )
 EMPIRE_CONTAINER = ServiceContainer(
-    Image(name="bcsecurity/empire:v4.10.0", services=(EMPIRE,), firehole_config="", pull=True),
+    Image(name="bcsecurity/empire:v4.10.0", services=(EMPIRE,), pull=True),
     tag=EMPIRE,
     command=["server", "--username", "cryton", "--password", "cryton"],
     can_be_combined=True,
 )
 COREDNS_CONTAINER = ServiceContainer(
-    Image(name="coredns/coredns", services=(COREDNS,), firehole_config="", pull=True),
+    Image(name="coredns/coredns", services=(COREDNS,), pull=True),
     tag=COREDNS,
     volumes=[Volume("core-dns", "/etc/coredns")],
     command=["-conf", "/etc/coredns/Corefile"],
@@ -104,7 +99,8 @@ NODES = {
 
 SERVICES = {
     "ssh": SSH,
-    "vsftp": FTP,
+    "vsftpd": FTP,
+    "samba": SAMBA,
     "mysql": MYSQL,
     "wordpress": WORDPRESS,
     "coredns": COREDNS,

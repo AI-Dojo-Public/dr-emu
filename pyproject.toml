@@ -6,11 +6,6 @@ authors = ["Milan Bohacek <bohacek@ics.muni.cz>", "Jiri Raja <Raja@ics.muni.cz>"
 readme = "README.md"
 
 [[tool.poetry.source]]
-name = "dojo"
-url = "https://gitlab.ics.muni.cz/api/v4/projects/6977/packages/pypi/simple"
-priority = "explicit"
-
-[[tool.poetry.source]]
 name = "cif"
 url = "https://gitlab.ics.muni.cz/api/v4/projects/7197/packages/pypi/simple"
 priority = "explicit"
@@ -20,7 +15,7 @@ python = "^3.11"
 docker = "^7.1.0"
 netaddr = "^0.9.0"
 randomname = "^0.2.1"
-cyst-core = { version = "*", source = "dojo" }
+cyst-core = { path = "./cyst-core/" }
 cif = { version = "*", source = "cif" }
 black = {extras = ["d"], version = "^23.3.0"}
 uvicorn = "^0.34.0"

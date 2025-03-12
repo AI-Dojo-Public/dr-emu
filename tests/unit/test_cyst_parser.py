@@ -1,4 +1,5 @@
 import pytest
+from cyst.api.logic.access import AccessLevel
 from frozendict import frozendict
 from pytest_mock import MockerFixture
 from unittest.mock import AsyncMock, Mock, call, MagicMock
@@ -6,7 +7,8 @@ from unittest.mock import AsyncMock, Mock, call, MagicMock
 from shared import constants
 from parser.cyst_parser import CYSTParser
 from parser.lib.simple_models import Network, Node, Service, ServiceContainer, NodeType
-from cyst.api.configuration import NodeConfig, RouterConfig, PassiveServiceConfig
+from cyst.api.configuration import NodeConfig, RouterConfig, PassiveServiceConfig, ExploitConfig, \
+    VulnerableServiceConfig, ActiveServiceConfig, InterfaceConfig
 from netaddr import IPAddress, IPNetwork
 from parser.lib import containers
 
@@ -120,28 +122,27 @@ class TestCYSTParser:
 
         # Sample cyst_nodes and exploits
         cyst_nodes = [
-            Mock(
-                id="node1",
-                interfaces=[Mock(ip="192.168.1.1", net="net1")],
-                active_services=[Mock(name="service1")],
-                passive_services=[Mock(name="service2")]
+            NodeConfig(
+                active_services=[ActiveServiceConfig("service1", "a", "a", AccessLevel.LIMITED)],
+                passive_services=[PassiveServiceConfig("service2", "a", "1.2.3", False, AccessLevel.LIMITED)],
+                traffic_processors=[""],
+                shell="",
+                interfaces=[InterfaceConfig(IPAddress("192.168.1.1"), IPNetwork("192.168.1.0/24"))],
+                id="node1"
             ),
-            Mock(
-                id="node2",
-                interfaces=[Mock(ip="192.168.1.2", net="net2")],
+            NodeConfig(
                 active_services=[],
-                passive_services=[Mock(name="service3")]
+                passive_services=[PassiveServiceConfig("service3", "a", "1.2.3", False, AccessLevel.LIMITED)],
+                traffic_processors=[""],
+                shell="",
+                interfaces=[InterfaceConfig(IPAddress("192.168.1.2"), IPNetwork("192.168.1.0/24"))],
+                id="node2"
             ),
         ]
 
         exploits = [
-            Mock(services=[MagicMock(service="vuln_service"), MagicMock(service="bash")]),
-            Mock(services=[MagicMock(service="service2")])
+            ExploitConfig([VulnerableServiceConfig("service3", "1.2.3", "1.2.3")], Mock(), Mock())
         ]
-
-        for exploit in exploits:
-            for service in exploit.services:
-                service.name = service._mock_name  # Ensures name is a direct string
 
         predefined_node = Mock(image="existing_image", service_containers=[Mock(image="service_image")])
         mocker.patch.dict("parser.lib.containers.NODES", {"node1": predefined_node})
@@ -158,7 +159,7 @@ class TestCYSTParser:
 
         # Check if services and images were processed for the new node (node2)
         self.parser._parse_services.assert_awaited_once_with(
-            cyst_nodes[1].active_services + cyst_nodes[1].passive_services, {"vuln_service", "service2", "bash"}, []
+            cyst_nodes[1].active_services + cyst_nodes[1].passive_services, [], cyst_nodes[1].passive_services
         )
         self.parser.create_image.assert_awaited_once_with(services=services_mock, data_configurations=[],
                                                           available_cif_services=["service1"])
@@ -170,7 +171,7 @@ class TestCYSTParser:
         assert self.parser.nodes[1].type == NodeType.DEFAULT
 
     async def test_parse_services(self, mocker: MockerFixture):
-        exploits = {"test_type", "vuln_service2"}
+        exploits = [PassiveServiceConfig("test_type", "test_type", "1.2.3", False, Mock())]
         data_type_config_mock = "test_type"
         data_configs = []
         cs1 = Mock(id="service", version="test", spec=PassiveServiceConfig,
@@ -183,11 +184,10 @@ class TestCYSTParser:
             "ssh": Service(type="ssh", variable_override=frozendict(SSH_PORT=22, SSH_HOST="0.0.0.0"), cves="")
         }
         mocker.patch.dict('parser.lib.containers.SERVICES', predefined_services)
-        mocker.patch('parser.lib.containers.EXPLOITS', exploits)
-        services = await self.parser._parse_services(cyst_services, exploits, data_configs)
+        services = await self.parser._parse_services(cyst_services, data_configs, exploits)
 
         assert services == [
-            Service(type="test_type", version="test", cves="cve_placeholder;"),
+            Service(type="test_type", version="test", cves=""),
             Service(type="ssh", variable_override=frozendict(SSH_PORT=22, SSH_HOST="0.0.0.0"), cves="")
         ]
         assert data_type_config_mock in data_configs

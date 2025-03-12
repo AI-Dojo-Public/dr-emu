@@ -8,7 +8,6 @@ from dr_emu.lib.util import pull_image, get_image, build_cif_image  # Adjust the
 from dr_emu.models import ImageState
 from docker.errors import ImageNotFound
 
-from shared.constants import firehole_config_path
 
 # Mock logger to avoid unnecessary logging during tests
 logger = AsyncMock()
@@ -43,7 +42,7 @@ def image():
         Mock(type="service1", variable_override={"key1": "value1"}),
         Mock(type="service2", variable_override={"key2": "value2"}),
     ]
-    image = Mock(state=ImageState.initialized, pull=False, services=services, firehole_config="test_path", data=[], packages=[])
+    image = Mock(state=ImageState.initialized, pull=False, services=services, data=[], packages=[])
     image.name = "test-image"
     return image
 
@@ -131,8 +130,7 @@ async def test_build_cif_image(mocker, image):
     mock_build.assert_called_once_with(
         services=["service1", "service2"],
         variables={"key1": "value1", "key2": "value2"},
-        actions=[],
-        firehole_config="test_path",
+        actions=[('create-user', {})],
         final_tag="test-image",
         files=[(mock_new_path, 'path/to/file1', None, None, None)],  # Can assert specific file details if needed
         packages=[],

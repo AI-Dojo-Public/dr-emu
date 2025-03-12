@@ -1,4 +1,5 @@
 import copy
+from frozendict import frozendict
 from typing import Sequence
 from uuid import uuid1
 
@@ -15,6 +16,7 @@ from cyst.api.configuration import (
 from cyst.api.configuration.configuration import ConfigItem
 from cyst.api.environment.environment import Environment
 from netaddr import IPNetwork
+from packaging.version import Version
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dr_emu.controllers import image as image_controller
@@ -71,14 +73,11 @@ class CYSTParser:
     async def create_image(
         self, services: list[Service], data_configurations: list[DataConfig], available_cif_services: list[str]
     ) -> Image:
-        firehole_config = ""  # TODO
         packages: set[str] = set()
         actual_services: list[Service] = list()
         for service in services:
             if service.type in available_cif_services:
                 actual_services.append(service)
-                if service.type in containers.EXPLOITS:
-                    firehole_config = containers.EXPLOITS[service.type]
             else:
                 packages.add(service.type)
 
@@ -88,7 +87,6 @@ class CYSTParser:
         image = Image(
             name=f"dr_emu_{(str(uuid1())).replace('-', '')}",
             services=tuple(services),
-            firehole_config=firehole_config,
             packages=packages,
             data=image_data,
         )
@@ -157,14 +155,14 @@ class CYSTParser:
                 logger.debug("Adding node", id=cyst_node.id, interfaces=interfaces)
                 continue
 
-            vulnerable_services = set()
-            for exploit in exploits:
-                for vuln_service in exploit.services:
-                    vulnerable_services.add(vuln_service.service)
+            vulnerable_services = await self._get_vulnerable_services(exploits, cyst_node.passive_services)
             data_configurations = []
             services = await self._parse_services(
-                cyst_node.active_services + cyst_node.passive_services, vulnerable_services, data_configurations
+                cyst_node.active_services + cyst_node.passive_services, data_configurations, vulnerable_services
             )
+
+            if vulnerable_services:
+                services.append(containers.FIREHOLE)
 
             image = await self.create_image(
                 services=services,
@@ -180,9 +178,9 @@ class CYSTParser:
 
     async def _parse_services(
         self,
-        node_services: set[PassiveServiceConfig | ActiveServiceConfig],
-        vulnerable_services: set[str],  # Not implemented yet
+        node_services: list[PassiveServiceConfig | ActiveServiceConfig],
         data_configs: list[DataConfig],
+        vulnerable_services: list[PassiveServiceConfig],
     ) -> list[Service]:
         """
         Create service models from nodes in cyst infrastructure prescription.
@@ -200,13 +198,15 @@ class CYSTParser:
                 case PassiveServiceConfig():
                     for data_config in node_service.private_data:
                         data_configs.append(data_config)
-                    # TODO: temporary solution instead of `vulnerable_services`
-                    # TODO: wait for cve implementation
-                    cves = "cve_placeholder;" if node_service.name in containers.EXPLOITS else ""
                     if node_service.name in containers.SERVICES:
                         service = containers.SERVICES[node_service.name]
+                        if any(vs.name == node_service.name for vs in vulnerable_services):
+                            variables = dict()
+                            for key, value in service.variable_override.items():
+                                variables[key] = "127.0.0.1" if f"{node_service.name.upper()}_HOST" in key else value
+                            service = Service(service.type, frozendict(variables), service.version, service.cves)
                     else:
-                        service = Service(type=node_service.name, version=node_service.version, cves=cves)
+                        service = Service(type=node_service.name, version=node_service.version)
                     services.append(service)
 
         return services
@@ -247,12 +247,17 @@ class CYSTParser:
                 )
             )
 
-    async def _parse_exploits(self, exploits: list[ExploitConfig], service: Service) -> None:
+    @staticmethod
+    async def _get_vulnerable_services(exploits: list[ExploitConfig], services: list[PassiveServiceConfig]) -> list[PassiveServiceConfig]:
+        vulnerable_services: list[PassiveServiceConfig] = list()
         for exploit in exploits:
             for vuln_service in exploit.services:
-                if service.type == vuln_service.name:
-                    # if service.version and (Version(vuln_service.min_version) <= Version(service.version) <= Version(vuln_service.max_version)):
-                    service.cves += "cve_placeholder;"
+                for service in services:
+                    if service.name == vuln_service.service:
+                        if service.version and Version(vuln_service.min_version) <= Version(service.version) <= Version(vuln_service.max_version):
+                            vulnerable_services.append(service)
+
+        return vulnerable_services
 
     # async def _resolve_dependencies(self): # TODO:
     #     all_services = [service for node in self.nodes for service in node.image.services]
@@ -368,7 +373,6 @@ class CYSTParser:
             )
         image = ImageModel(
             services=service_models,
-            firehole_config=simple_image.firehole_config,
             pull=simple_image.pull,
             name=simple_image.name,
             data=[data_description for data_description in simple_image.data],
