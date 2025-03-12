@@ -91,6 +91,7 @@ async def pull_image(docker_client: DockerClient, image: str):
 async def build_cif_image(image: Image):
     image_variables = {}
     image_services = []
+    image_actions = [("create-user", dict())]
     for service in image.services:
         image_services.append(service.type)
         image_variables.update(service.variable_override)
@@ -119,8 +120,11 @@ async def build_cif_image(image: Image):
             cif.build,
             services=image_services,
             variables=image_variables,
-            actions=[], firehole_config=image.firehole_config, final_tag=image.name, files=image_files,
-            packages=image.packages, clean_up=True)
+            actions=image_actions,
+            final_tag=image.name,
+            files=image_files,
+            packages=image.packages,
+            clean_up=True)
     finally:
         # Delete all created files
         for file_path in file_paths:

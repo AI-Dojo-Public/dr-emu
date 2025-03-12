@@ -2,7 +2,6 @@ import asyncio
 import pathlib
 
 project_root_path = pathlib.Path(__file__).absolute().parent.parent
-firehole_config_path = project_root_path / "demos" / "2025" / "firehole_configs"
 resources_path = project_root_path / "resources"
 cif_tmp_data_path = project_root_path / "cif_tmp_data"
 

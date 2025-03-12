@@ -1,8 +1,0 @@
-applications:
-  - type: ftp
-    host: 0.0.0.0
-    port: 2121
-    origin_host: 127.0.0.1
-    origin_port: 21
-    vulnerabilities:
-      -

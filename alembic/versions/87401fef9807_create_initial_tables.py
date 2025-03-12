@@ -24,7 +24,6 @@ def upgrade() -> None:
     op.create_table('image',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('packages', sqlalchemy_utils.types.scalar_list.ScalarListType(), nullable=False),
-    sa.Column('firehole_config', sa.String(), nullable=False),
     sa.Column('pull', sa.Boolean(), nullable=False),
     sa.Column('name', sa.String(), nullable=False),
     sa.Column('state', sa.Enum('initialized', 'building', 'ready', name='imagestate'), nullable=False),
