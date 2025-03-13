@@ -58,6 +58,8 @@ build_docker_image_dr_emu:
   stage: build
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"
+  before_script:
+    - git clone https://oauth2:$CYST_TOKEN@gitlab.ics.muni.cz/cyst/cyst-core.git
   script:
     - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"username\":\"${CI_REGISTRY_USER}\",\"password\":\"${CI_REGISTRY_PASSWORD}\"}}}" > /kaniko/.docker/config.json
     - /kaniko/executor
