@@ -3,9 +3,6 @@ default:
   artifacts:
     expire_in: 30 days
 
-variables:
-  DOCKER_TLS_CERTDIR: "/certs"
-
 stages:
   - test
   - build
@@ -35,7 +32,6 @@ stages:
     - pipx ensurepath
     - pipx install poetry
     - pipx ensurepath
-    - git clone https://oauth2:$CYST_TOKEN@gitlab.ics.muni.cz/cyst/cyst-core.git
     - export PATH="/root/.local/bin:$PATH"
     - poetry install
   artifacts:
@@ -55,9 +51,6 @@ integration_tests:
     - poetry run pytest tests/integration/
 
 build_docker_image_dr_emu:
-  needs:
-    - job: unit_tests
-      artifacts: true
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [ "" ]
