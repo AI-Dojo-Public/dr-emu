@@ -191,10 +191,11 @@ class CYSTParser:
 
         for node_service in node_services:
             match node_service:
-                case ActiveServiceConfig():
-                    if node_service.type not in containers.SERVICES:
-                        raise NotImplementedError(f"ActiveService {node_service.type} is not supported.")
-                    services.append(containers.SERVICES[node_service.type])
+                # case ActiveServiceConfig():
+                    # if node_service.type not in containers.SERVICES:
+                    #     raise NotImplementedError(f"ActiveService {node_service.type} is not supported.")
+                    # services.append(containers.SERVICES[node_service.type])
+
                 case PassiveServiceConfig():
                     for data_config in node_service.private_data:
                         data_configs.append(data_config)
